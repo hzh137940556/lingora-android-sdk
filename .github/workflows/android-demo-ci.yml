@@ -50,6 +50,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: python3 demo/tests/check_modes.py
       - run: make -C demo verify
+        env:
+          ORG_GRADLE_PROJECT_lingoraSdkMode: local
 
   maven-isolation:
     name: Demo Maven fixture (${{ matrix.channel }})
