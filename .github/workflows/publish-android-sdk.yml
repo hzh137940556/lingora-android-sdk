@@ -16,7 +16,8 @@ defaults:
 
 jobs:
   verify:
-    name: Android SDK CI
+    # 与 main、develop 的必需检查名保持一致，避免合并一直等待 Expected。
+    name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

@@ -30,7 +30,7 @@ scripts -> public HTTP/file boundaries
 - SDK 两个发布渠道使用相同源码与 Kotlin package：`develop` 的 `android-sdk-dev-X.Y.Z` 发布
   `io.lingora:lingora-android-dev:X.Y.Z`；`main` 的 `android-sdk-X.Y.Z` 发布
   `io.lingora:lingora-android:X.Y.Z`。版本映射统一维护在 `scripts/sdk_release.py`。
-- 发布必须先通过 `Android SDK CI`，再经过 `android-sdk-release` Environment 人工批准；
+- 发布必须先通过 `verify` 检查，再经过 `android-sdk-release` Environment 人工批准；
   不允许缺少审批配置、覆盖包版本、移动版本 Tag，或把发布 Job 设为分支必需检查。
 - 发布环境仅配置 `hzh137940556` 为审批人，允许自审，禁止管理员绕过，且只允许 `android-sdk-*` Tag。
 - Demo 的 SDK 依赖统一在 `app/build.gradle.kts` 中切换，本地 module、正式 Maven 包和测试

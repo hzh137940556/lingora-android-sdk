@@ -9,7 +9,7 @@
   以新仓库初始提交迁入，不复制旧 Git 历史、Tag、Release 或已发布的 Maven 包。
 - 初始化 `main` 与 `develop`，默认分支为 `main`；两者从同一份代码开始。
 - 已替换 Maven 下载地址、发布地址与 POM 项目链接；Kotlin package 和 Maven 坐标不变。
-- 保留 `Android SDK CI`、两个发布渠道、人工审批校验、Tag 来源校验、拒绝覆盖版本和发布后消费验收。
+- 保留 `verify` 测试构建检查、两个发布渠道、人工审批校验、Tag 来源校验、拒绝覆盖版本和发布后消费验收。
 - 未复制原目录未提交的 `gradle.properties`、API Key、`.lingorarc`、`local.properties`、
   签名文件、缓存或生成资源；原目录与用户改动保持不变。
 - 旧仓库的 Settings 当前无法读取，因此不能声称已完整复制远端保护设置；
@@ -49,7 +49,7 @@
 1. 启用 GitHub Actions，允许本工作流引用的 Actions。
 2. `Workflow permissions` 保持默认只读；无需全局打开读写权限，也无需允许 Actions 审批 PR。
 3. 查看 [Actions](https://github.com/hzh137940556/lingora-android-sdk/actions)，等待初始化的
-   `Android SDK CI` 运行完成。PR 和 `main`、`develop` 推送只测试构建，不发包。
+   `verify` 运行完成。PR 和 `main`、`develop` 推送只测试构建，不发包。
 
 发布 Job 在 YAML 内单独申请 `packages: write`，使用自动生成的 `GITHUB_TOKEN`，
 不需要配置 `GPR_TOKEN`、GitHub PAT 或 PyPI Token。Lingora CLI 的 PyPI 发布仍属于主仓库，
@@ -57,13 +57,13 @@
 
 ## 4. 配置 main、develop 分支保护
 
-先完成第 1 步并让 `Android SDK CI` 成功运行，再进入
+先完成第 1 步并让 `verify` 成功运行，再进入
 [Settings → Rules → Rulesets](https://github.com/hzh137940556/lingora-android-sdk/settings/rules)。
 创建 Active 的 Branch ruleset，目标明确选择 `main`、`develop`：
 
 1. 要求通过 Pull Request 合并；PR 审核人数和额外审核策略按原仓库配置填写。
    如果原设置无法恢复，建议至少 1 人审核，但需所有者确认；PR 作者不能审批自己的 PR。
-2. `Require status checks to pass` 只添加 **`Android SDK CI`**。
+2. `Require status checks to pass` 只添加 **`verify`**，与 Job 的显示名完全一致，避免一直等待 `Expected`。
    不要添加 `publish` 或 `Publish Android SDK`，它们只在版本 Tag 上执行。
 3. 禁止强制推送和删除受保护分支；如需保持合并前最新代码，启用分支 up-to-date 检查。
 4. 不配置管理员绕过。如果旧规则还有额外限制，应在这里补回，不能视为已迁移。
@@ -142,7 +142,7 @@ git pull --ff-only origin develop
 make publish-dev VERSION=0.1.0
 ```
 
-在 Actions 等待 `Android SDK CI` 通过，然后点击 `Review deployments` → `Approve and deploy`。
+在 Actions 等待 `verify` 通过，然后点击 `Review deployments` → `Approve and deploy`。
 测试包为 `io.lingora:lingora-android-dev:0.1.0`，Tag 为 `android-sdk-dev-0.1.0`。
 批准后 CI 发布并让 Demo 下载该 Maven 包构建；即使消费验收失败也不能覆盖已上传版本。
 
