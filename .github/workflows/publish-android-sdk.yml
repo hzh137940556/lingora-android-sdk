@@ -16,7 +16,8 @@ defaults:
 
 jobs:
   verify:
-    name: Android SDK CI
+    # 配置分支必需检查时使用此显示名，内部 verify 标识保持稳定。
+    name: Test and build SDK and Demo
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

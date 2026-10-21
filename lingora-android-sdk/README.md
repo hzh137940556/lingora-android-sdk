@@ -225,7 +225,7 @@ URL、namespace 和语言应与服务端 Delivery 一致；未配置 URL 时验�
 
 工作流分为两个 Job：
 
-1. `verify`（检查名 `Android SDK CI`）：运行发布脚本回归测试、SDK 单元测试、Demo 单元测试、
+1. `verify`（检查名 `Test and build SDK and Demo`）：运行 Demo CLI 编排与发布门禁脚本回归测试、SDK 单元测试、Demo 单元测试、
    Demo Debug 构建及 SDK Release 构建。普通 PR 和 `main`、`develop` 推送也执行这个 Job。
 2. `publish`：只在版本 Tag 校验成功后出现，等待人工批准，随后检查包版本不存在，再发布
    AAR、sources JAR、POM 和 Gradle metadata；最后在临时工作区中将 Demo 启用的 SDK
@@ -253,8 +253,9 @@ GitHub Settings、旧仓库的包和本机凭据不会随源码迁移；审批�
    类型为 **Tag**，名称为 `android-sdk-*`。不要添加同名的 Branch 规则。
 4. `Settings` → `Rules` → `Rulesets` 新建 Active 的 Tag ruleset，目标为 `android-sdk-*`，
    启用 `Restrict updates` 和 `Restrict deletions`，不配置绕过权限，不限制新 Tag 的创建。
-5. `Android SDK CI` 在 PR 中成功运行后，将 `main`、`develop` 分支规则的必需检查设置为
-   `Android SDK CI`；保留已有 PR 审核规则，不将 `publish` 或 `Publish Android SDK` 设为必需检查。
+5. `Test and build SDK and Demo` 在 PR 中成功运行后，将 `main`、`develop` 分支规则的必需检查设置为
+   `Test and build SDK and Demo`，不使用内部标识 `verify`；保留已有 PR 审核规则，
+   不将 `publish` 或 `Publish Android SDK` 设为必需检查。
 
 审批配置完成后合并发布 PR，并通过 PR 将同一份发布配置同步到 `develop`。先发布测试包并在
 外部消费项目验证下载、引用和构建，再从 `main` 发布正式包。
