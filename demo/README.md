@@ -8,13 +8,13 @@ Demo 展示一条最小接入链路：App 引入 SDK，CLI 同步静态翻译，
 Demo 支持三种 SDK 来源：
 
 ```properties
-# 本仓库源码联调
-lingoraSdkMode=local
-lingoraLocalSdkPath=../sdk
+# 默认使用 GitHub Packages 测试包
+lingoraSdkMode=dev
+lingoraSdkVersion=0.1.4
 
-# GitHub Packages 测试包
-# lingoraSdkMode=dev
-# lingoraSdkVersion=X.Y.Z
+# 本仓库源码联调
+# lingoraSdkMode=local
+# lingoraLocalSdkPath=../sdk
 
 # GitHub Packages 正式包
 # lingoraSdkMode=release

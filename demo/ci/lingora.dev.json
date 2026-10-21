@@ -31,8 +31,5 @@
     "states": ["TRANSLATED", "REVIEWED"],
     "fileStructureTemplate": "values-{androidLanguageTag}/strings.{extension}",
     "emptyDir": true
-  },
-  "contentDeliveries": {
-    "current": "https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1"
   }
 }

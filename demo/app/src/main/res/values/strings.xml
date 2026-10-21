@@ -2,7 +2,7 @@
     <string name="app_name">Lingora Android Demo</string>
     <string name="demo_title">Lingora dynamic text test</string>
     <string name="demo_description">Publish new values in Lingora, refresh this page, then tap a key to inspect the current value.</string>
-    <string name="welcome">Welcome from the APK fallback</string>
+    <string name="welcome">Welcome from the APK fallback local</string>
     <string name="welcome_name">Hello, %1$s!</string>
     <string name="current_locale">Current locale: %1$s</string>
     <string name="available_locales">Published locales</string>
