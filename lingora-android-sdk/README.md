@@ -247,7 +247,7 @@ GitHub Settings、旧仓库的包和本机凭据不会随源码迁移；审批�
 当前发布校验会拒绝不存在或不符合以下要求的 Environment，防止无保护发布。
 
 1. 进入 `Settings` → `Environments`，创建 `android-sdk-release`。
-2. 勾选 `Required reviewers`，添加 `hzhbrain`、`hzh137940556`；任一账号批准即可。
+2. 勾选 `Required reviewers`，仅添加 `hzh137940556`；由该账号批准发布。
    不勾选 `Prevent self-review`，允许自己批准；关闭 `Allow administrators to bypass configured protection rules`。
 3. `Deployment branches and tags` 选择 `Selected branches and tags`，只添加一条规则：
    类型为 **Tag**，名称为 `android-sdk-*`。不要添加同名的 Branch 规则。

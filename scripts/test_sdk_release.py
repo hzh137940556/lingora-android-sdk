@@ -223,13 +223,13 @@ class SourceTests(unittest.TestCase):
 
 # 检查人工审批配置缺失或被放宽时必须失败。
 class EnvironmentTests(unittest.TestCase):
-    # 构造与计划一致的两个审批人和 Tag 白名单。
+    # 构造当前唯一审批人和 Tag 白名单，不从实现常量生成预期配置。
     def setUp(self) -> None:
         self.environment = {
             "can_admins_bypass": False,
             "protection_rules": [{
                 "type": "required_reviewers", "prevent_self_review": False,
-                "reviewers": [{"type": "User", "reviewer": {"login": name}} for name in sorted(sdk.REVIEWERS)],
+                "reviewers": [{"type": "User", "reviewer": {"login": "hzh137940556"}}],
             }],
             "deployment_branch_policy": {"custom_branch_policies": True, "protected_branches": False},
         }
@@ -238,6 +238,18 @@ class EnvironmentTests(unittest.TestCase):
     # 正确配置允许进入等待审批的发布 Job。
     def test_valid_environment(self) -> None:
         sdk.validate_environment(self.environment, self.policies)
+
+    # 旧账号、替代账号以及额外审批人都不能改变已确认的唯一审批名单。
+    def test_other_reviewers_are_rejected(self) -> None:
+        for names in (
+            ["hzhbrain"], ["another-reviewer"], ["hzh137940556", "hzhbrain"],
+        ):
+            environment = copy.deepcopy(self.environment)
+            environment["protection_rules"][0]["reviewers"] = [
+                {"type": "User", "reviewer": {"login": name}} for name in names
+            ]
+            with self.subTest(names=names), self.assertRaises(ValueError):
+                sdk.validate_environment(environment, self.policies)
 
     # 自动创建的无保护环境不满足发版条件。
     def test_missing_reviewers_is_rejected(self) -> None:
