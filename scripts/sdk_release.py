@@ -223,7 +223,7 @@ def prepare_demo(release: Release) -> None:
     build_file.write_text(source, encoding="utf-8")
 
 
-# 向 CI 输出已验证的渠道与提交，同时展示人工审批需要核对的信息。
+# 向 CI 输出已验证的发布字段，并在审批摘要标题中突出渠道和版本。
 def report(release: Release, sha: str = "", output: Path | None = None) -> None:
     fields = {
         "version": release.version, "channel": release.channel, "branch": release.branch,
@@ -237,7 +237,7 @@ def report(release: Release, sha: str = "", output: Path | None = None) -> None:
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with Path(summary).open("a", encoding="utf-8") as stream:
-            stream.write("\n### SDK 发布信息\n\n")
+            stream.write(f"\n### SDK 发布信息 [{release.channel}] — {release.version}\n\n")
             stream.writelines(f"- {key}: `{value}`\n" for key, value in fields.items())
 
 

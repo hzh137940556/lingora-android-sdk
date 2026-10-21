@@ -1,4 +1,9 @@
 name: Android SDK CI and Release
+# 运行列表先按 Tag 显示渠道；真正发布仍以 verify-tag 校验结果为准。
+run-name: >-
+  ${{ startsWith(github.ref, 'refs/tags/android-sdk-')
+      && format('Publish Android SDK [{0}] — {1}', startsWith(github.ref, 'refs/tags/android-sdk-dev-') && 'dev' || 'release', github.ref_name)
+      || format('Test and build SDK and Demo — {0}', github.head_ref || github.ref_name) }}
 
 on:
   pull_request:
@@ -73,7 +78,11 @@ jobs:
         run: make verify VERSION="$SDK_VERSION" SDK_CHANNEL="$SDK_CHANNEL"
 
   publish:
-    name: Publish Android SDK
+    # 审批前即可看到已校验的渠道和版本，Environment 仍共用同一套门禁。
+    name: >-
+      ${{ needs.verify.outputs.channel
+          && format('Publish Android SDK [{0}] — {1}', needs.verify.outputs.channel, needs.verify.outputs.version)
+          || 'Publish Android SDK (tag only)' }}
     needs: verify
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-sdk-')
     runs-on: ubuntu-latest
