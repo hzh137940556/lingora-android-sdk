@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Lingora Android Demo</string>
+    <string name="demo_title">Lingora dynamic text test</string>
+    <string name="demo_description">Publish new values in Lingora, refresh this page, then tap a key to inspect the current value.</string>
+    <string name="welcome">Welcome from the APK fallback</string>
+    <string name="welcome_name">Hello, %1$s!</string>
+    <string name="current_locale">Current locale: %1$s</string>
+    <string name="available_locales">Published locales</string>
+    <string name="refresh">Refresh published values</string>
+    <string name="tap_key_hint">Tap a key to show its current Lingora value</string>
+    <string name="close">Close</string>
+    <string name="source_network">Loaded from network</string>
+    <string name="source_cache">Loaded from disk cache</string>
+    <string name="loading">Loading Content Delivery…</string>
+    <string name="local_notice">Local notice</string>
+    <plurals name="items_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+    <string-array name="weekdays">
+        <item>Monday</item>
+        <item>Tuesday</item>
+    </string-array>
+</resources>

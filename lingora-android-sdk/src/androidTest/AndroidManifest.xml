@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only the instrumentation APK permits HTTP to its in-process test server. -->
+    <application android:usesCleartextTraffic="true" />
+</manifest>

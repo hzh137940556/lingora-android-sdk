@@ -1,0 +1,11 @@
+<resources>
+    <string name="audit_text">APK text</string>
+    <plurals name="audit_quantity">
+        <item quantity="one">%d APK item</item>
+        <item quantity="other">%d APK items</item>
+    </plurals>
+    <string-array name="audit_days">
+        <item>APK Monday</item>
+        <item>APK Tuesday</item>
+    </string-array>
+</resources>

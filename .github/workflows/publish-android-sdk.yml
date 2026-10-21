@@ -1,0 +1,150 @@
+name: Android SDK CI and Release
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+    tags: ["android-sdk-*"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  verify:
+    name: Android SDK CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release source and approval configuration
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-sdk-')
+        id: release
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/sdk_release.py verify-tag
+          --tag "$TAG_NAME"
+          --repository "$GITHUB_REPOSITORY"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;35.0.0"
+          log-accepted-android-sdk-licenses: false
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test and build SDK and Demo
+        env:
+          SDK_VERSION: ${{ steps.release.outputs.version || '0.1.0-SNAPSHOT' }}
+          SDK_CHANNEL: ${{ steps.release.outputs.channel || 'release' }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make verify VERSION="$SDK_VERSION" SDK_CHANNEL="$SDK_CHANNEL"
+
+  publish:
+    name: Publish Android SDK
+    needs: verify
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-sdk-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: android-sdk-release
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    concurrency:
+      group: android-sdk-publish-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      SDK_VERSION: ${{ needs.verify.outputs.version }}
+      SDK_CHANNEL: ${{ needs.verify.outputs.channel }}
+      RELEASE_SHA: ${{ needs.verify.outputs.sha }}
+      TAG_NAME: ${{ needs.verify.outputs.tag }}
+
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recheck approved release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/sdk_release.py verify-tag
+          --tag "$TAG_NAME"
+          --repository "$GITHUB_REPOSITORY"
+          --expected-sha "$RELEASE_SHA"
+
+      - name: Reject an existing package version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/sdk_release.py check-package
+          --channel "$SDK_CHANNEL" --version "$SDK_VERSION"
+          --repository "$GITHUB_REPOSITORY"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;35.0.0"
+          log-accepted-android-sdk-licenses: false
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish approved package
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          ./gradlew
+          :lingora-android-sdk:publishReleasePublicationToGitHubPackagesRepository
+          -PVERSION_NAME="$SDK_VERSION" -PSDK_CHANNEL="$SDK_CHANNEL"
+          --no-daemon
+
+      - name: Build Demo against the downloaded package
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/sdk_release.py prepare-demo \
+            --channel "$SDK_CHANNEL" --version "$SDK_VERSION"
+          ./gradlew :app:assembleDebug \
+            -PVERSION_NAME="$SDK_VERSION" -PSDK_CHANNEL="$SDK_CHANNEL" \
+            --refresh-dependencies --no-daemon
