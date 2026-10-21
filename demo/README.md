@@ -1,240 +1,101 @@
-# Lingora SDK Demo
+# Lingora Android Demo
 
-这是独立 Gradle App 工程。以下命令均在 `demo/` 下执行，Android Studio 也直接打开此目录。
-SDK 接入与发布见 [SDK 文档](../sdk/README.md)，仓库设置见 [GitHub 配置清单](../GITHUB_SETUP.md)。
+Demo 展示一条最小接入链路：App 引入 SDK，CLI 同步静态翻译，页面通过 SDK 读取动态文案。
+以下命令均在 `demo/` 下执行，Android Studio 也直接打开此目录。
 
-## 切换 SDK 来源
+## 1. 接入 SDK
 
-在 `demo/gradle.properties` 修改 `lingoraSdkMode`，远端模式同时设置固定版本，不需要修改 Kotlin 或依赖声明：
+Demo 支持三种 SDK 来源：
 
 ```properties
-lingoraSdkMode=local
+# 默认使用 GitHub Packages 测试包
+lingoraSdkMode=dev
+lingoraSdkVersion=0.1.4
+
+# 本仓库源码联调
+# lingoraSdkMode=local
 # lingoraLocalSdkPath=../sdk
-# 远端模式：lingoraSdkMode=dev 或 release，同时取消下面版本行的注释
-# lingoraSdkVersion=0.1.0
+
+# GitHub Packages 正式包
+# lingoraSdkMode=release
+# lingoraSdkVersion=X.Y.Z
 ```
 
-也可以用命令覆盖（示例版本不代表已经发布）：
-
-```bash
-./gradlew :app:assembleDebug -PlingoraSdkMode=local
-./gradlew :app:assembleDebug -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.0
-./gradlew :app:assembleDebug -PlingoraSdkMode=release -PlingoraSdkVersion=0.1.0
-```
-
-`app/build.gradle.kts` 只有一条 `implementation("io.lingora:$sdkArtifact:$sdkVersion")`。
-local 通过 settings 的 Composite Build 替换成独立 SDK 工程；dev 使用 `lingora-android-dev`，
-release 使用 `lingora-android`。两包不能同时引入；三种方式均保持相同 import。
-
-远端模式不读取本地 SDK、SDK 版本目录或 SDK 配置；可以把整个 `demo/` 单独复制出去构建。
-local 路径不存在、模式非法或 Maven 版本未指定时会直接失败，不会自动回退。
-默认暂时保留 local，待真实远端版本下载验收后再固定默认 Maven 版本。
-
-远端模式需要在个人 `~/.gradle/gradle.properties` 配置，不要提交：
+使用远端包时，在个人 `~/.gradle/gradle.properties` 配置读取凭据，不要提交：
 
 ```properties
 gpr.user=<GitHub 用户名>
 gpr.key=<具有 read:packages 权限的 classic PAT>
 ```
 
-CI 可使用 `GITHUB_ACTOR`、`GITHUB_TOKEN`；其他消费仓库还需获得包读取权限。
-local 模式无需 Maven 凭据。工具链由本目录独立维护，不读取 SDK 的 wrapper、插件或版本目录。
+`app/build.gradle.kts` 只声明一次 SDK 依赖，`settings.gradle.kts` 根据
+`lingoraSdkMode` 选择本地源码、dev 包或 release 包。完整的消费项目配置见
+[SDK 接入与使用](../sdk/README.md)。
 
-## 独立校验
+## 2. 接入 CLI
 
-`make verify` 验证 Demo 的 CLI 编排、App 单元测试与 APK 构建，不负责发包。
-`Android Demo CI` 普通运行验证 local 和 dev/release Maven fixture；fixture 只用于验证隔离与依赖元数据，
-不代表已验证 GitHub Packages 下载。
+CLI 用于把 Android 基础资源上传到 Lingora，再把目标语言下载到生成目录。Demo 固定使用
+`lingora-cli.version` 中的版本，本机只需安装 `uv`。
 
-真实发布后，在 Actions 的 `Android Demo CI` → `Run workflow` 中填写渠道、固定版本和完整 SHA；
-该运行只检出 Demo，从 GitHub Packages 下载 AAR，不加载 SDK。SDK 发布工作流也会请求这项验收，
-失败需单独处理，不能覆盖包。调度要求此工作流先存在于默认分支，见 [配置清单](../GITHUB_SETUP.md#7-启用独立-demo-验收)。
-
-## 多环境 CLI 配置
-
-翻译工具由 Lingora 主仓库独立发布到 [PyPI](https://pypi.org/project/lingora-cli/)，Android
-只调用固定版本的公开命令，不复制或导入 push、pull、validate 或 delivery 实现。`make mock_ci`
-通过 `uvx` 自动下载并缓存 `lingora-cli.version` 指定的版本；本机只需预先安装 `uv`。
-
-需要直接使用 `lingora init` 等命令时，可以安装同一个固定版本：
+`ci/lingora.dev.json` 保存项目、分支、语言和资源路径，不保存 API Key。运行前注入密钥：
 
 ```bash
-CLI_VERSION="$(tr -d '\r\n' < lingora-cli.version)"
-uv tool install --python 3.12 "lingora-cli==$CLI_VERSION"
-lingora --version
-lingora init
+export LINGORA_API_KEY='<API Key>'
 ```
 
-`demo/Makefile` 的 `mock_ci` 目标只负责依次调用固定版本 CLI 的 `lingora push` 和 `lingora pull`；
-具体实现和版本发布统一由 Lingora 主仓库维护。
-Maven 发布脚本与翻译 CLI 相互独立，本次清理不影响 SDK 发包。
-完整参数和无配置调用示例见 [CLI 命令手册](https://github.com/brain/lingora/blob/main/cli/COMMANDS.md)，
-安装与发布说明见 [Lingora CLI](https://github.com/brain/lingora/tree/main/cli)。
-
-`lingora init` 可创建 Demo 根目录的本机配置；当前 Dev CI 使用仓库内无密钥配置
-`ci/lingora.dev.json`。其中固定 Lingora API、Project UUID、`develop` Branch、语言、namespace、
-资源路径和公开 Content Delivery URL；相对路径以 `demo/ci/` 为基准，`pull.path` 指向
-`../generated/lingora/res`。
-
-API Key 不允许写入 JSON，只通过 CI Secret 注入：
-
-```bash
-export LINGORA_API_KEY='<CI secret>'
-lingora --config ci/lingora.dev.json pull
-```
-
-更换环境时只替换配置路径。CLI 只提供独立操作，不提供 `lingora mock-ci`；需要模拟
-push 后 pull 时，由 Demo Makefile 编排：
+上传并下载：
 
 ```bash
 make mock_ci
-
-# 使用其他无密钥配置
-make mock_ci LINGORA_CONFIG=ci/lingora.other.json
 ```
 
-`LINGORA_CONFIG` 默认是 `ci/lingora.dev.json`。Make 通过 `uvx` 依次调用固定版本的
-`lingora push`、`lingora pull`；push 失败时不会继续 pull。命令不加载本仓库旧脚本或主仓库
-源码，运行前需安装 `uv` 并注入 `LINGORA_API_KEY`。
-
-执行顺序为：
-
-```text
-push app/src/main/res/values/strings.xml + values/arrays.xml（同一次 import）
-  -> 按名称精确解析 Branch UUID
-  -> pull 配置中的 TRANSLATED / REVIEWED 目标语言
-  -> 在临时目录校验
-  -> 原子替换 generated/lingora/res
-```
-
-任一步失败都会返回非零并停止。`app/build.gradle.kts` 将
-`generated/lingora/res` 加入 Android main resource source set，因此 pull 资源和开发者维护的
-`app/src/main/res` 物理分离，但构建时仍由 Android 合并。`ja` 对应 `values-ja`，`zh-CN`
-对应 `values-zh-rCN`。同步成功后可执行：
+也可以只执行某一步：
 
 ```bash
-./gradlew :app:installDebug
+CLI_VERSION="$(tr -d '\r\n' < lingora-cli.version)"
+uvx --from "lingora-cli==$CLI_VERSION" lingora --config ci/lingora.dev.json push
+uvx --from "lingora-cli==$CLI_VERSION" lingora --config ci/lingora.dev.json pull
 ```
 
-生成目录不位于 `app/build/`，所以 `gradle clean` 不会删除；CI 仍应在构建前执行同步：
+- `push` 上传 `values/strings.xml` 和 `values/arrays.xml` 中的基础语言。
+- `forceMode=NO_FORCE` 遇到服务端非空值冲突时停止，不静默覆盖。
+- `pull` 只下载配置中状态为 `TRANSLATED` 或 `REVIEWED` 的非空目标翻译。
+- 输出写入 `generated/lingora/res`；该目录已加入 App 的 main resource source set，不提交 Git。
 
-```bash
-./gradlew clean
-lingora --config ci/lingora.dev.json pull
-./gradlew :app:installDebug
-```
+CLI 只负责同步资源，不会自动翻译，也不会在普通 Gradle 构建中自动运行。
 
-## Branch 和参数覆盖
+## 3. App 前端使用
 
-Branch 优先级为：命令行 `--branch`、
-`LINGORA_BRANCH`、配置文件 `branch`。
-
-```bash
-lingora --config ci/lingora.dev.json pull \
-  --branch feature/payment-copy
-LINGORA_BRANCH=feature/payment-copy \
-  lingora --config ci/lingora.dev.json pull
-```
-
-也可以分别运行：
-
-```bash
-lingora --config ci/lingora.dev.json push
-lingora --config ci/lingora.dev.json pull
-lingora --config ci/lingora.dev.json validate
-```
-
-Demo 的 `make mock_ci` 会先上传再下载，具有服务端写入副作用；`push` 使用配置中的
-`push.forceMode`，本仓库旧模板为 `OVERRIDE`，CLI 新模板的安全默认值为 `NO_FORCE`，因此本地基础文案发生变化后可重复执行；
-`push.overrideMode=RECOMMENDED` 会继续保护不可覆盖的已审核翻译，
-`push.removeOtherKeys=false` 不会删除服务端额外 Key。
-
-`push.files` 是文件列表。Demo 同时配置 `strings.xml` 和
-`arrays.xml`，脚本会把它们作为重复的 multipart `files` 字段一次性提交；这样普通 string、
-plural 和 `string-array` 的 Key 会一起参与同一轮冲突处理和删除范围计算。
-
-目标语言数组按整组处理：元素数量与基础语言一致时才写入生成 XML；缺少任一元素时，pull 会
-移除该目标语言的整个 `string-array`，让 Android 回退到 `values/arrays.xml`。SDK 对 Content
-Delivery 数组执行相同的长度检查，避免部分数组覆盖 APK fallback 后造成下标错位。
-
-`pull.states` 默认只包含 `TRANSLATED`、`REVIEWED`。只在 Lingora 中新增 `ja`、`zh-CN`
-语言但尚未填写翻译时，导出不会生成空 XML；脚本会显示 `exported=none`。
-至少一条目标语言翻译进入上述状态后，对应文件才会写入
-`generated/lingora/res/values-*`。该目录由 pull 独占并被 Git 忽略，`pull.emptyDir=true`
-会在校验成功后替换完整目录，避免已移除语言或翻译留下旧文件。
-
-## 本地资源与 pull 资源
-
-- 开发者维护的资源放在 `app/src/main/res` 并提交 Git，例如
-  `values-ja/local_strings.xml`。
-- Lingora 管理的资源只写入 `generated/lingora/res`，不要手工修改或提交。
-- 两边可以包含不同的 Key；代码继续使用同一个 `R.string.<key>`。
-- 两边不能定义相同语言下的同名 Key，否则同属 main source set，Android 资源合并会失败。
-- 本地 Key 应同时在默认的 `app/src/main/res/values/strings.xml` 中提供 fallback。
-
-## Content Delivery
-
-配置中的 `contentDeliveries` 别名完全由使用者定义，不是 Branch 名称。示例使用 `current`：
-
-```bash
-lingora --config ci/lingora.dev.json delivery check --alias current
-```
-
-App 的 Delivery URL 独立于 CLI 配置，由 Gradle property 或构建环境变量注入。
-优先级为 `lingoraContentDeliveryUrl` > `LINGORA_CONTENT_DELIVERY_URL` > 空 URL：
-
-```bash
-./gradlew :app:assembleDebug -PlingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1
-LINGORA_CONTENT_DELIVERY_URL=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1 ./gradlew :app:assembleDebug
-```
-
-个人也可以写在被忽略的 `~/.gradle/gradle.properties` 中：
+先为 App 配置公开 Content Delivery URL：
 
 ```properties
-lingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1
+lingoraContentDeliveryUrl=https://example.com/lingora/localstrings/dev/v1
 ```
 
-Application 使用 `BuildConfig.LINGORA_CONTENT_DELIVERY_URL` 初始化 SDK，不读取 CLI 配置。
-未配置时构建给出提示，Demo 使用 APK 本地资源。当前语言默认跟随系统，
-`defaultLanguage = "en-US"` 是 SDK 的基础回退语言。
-`demoApplicationId` 仍可改变 App ID，但不再负责选择 URL。
-Gradle 正常构建不会执行 CLI，也不会上传翻译。
+也可以通过环境变量 `LINGORA_CONTENT_DELIVERY_URL` 注入。未配置或远端不可用时，SDK 自动使用
+`app/src/main/res` 中的 APK 文案。
 
-Branch 由服务端 Content Delivery 配置绑定；App 不接收 Branch 名称，也不包含 API Key。CI 配置中的
-Branch 必须与该 APK 选择的 Content Delivery URL 所绑定的 Branch 一致。
+App 在 [LingoraDemoApplication.kt](app/src/main/java/com/example/myapplication/LingoraDemoApplication.kt)
+初始化 SDK。Compose 页面使用响应式 API：
 
-服务端给 Android SDK 使用的 Content Delivery 必须设置为：
+```kotlin
+val context = LocalContext.current
+val text by Lingora.instance
+    .tFlow(context, R.string.welcome)
+    .collectAsState(initial = context.getString(R.string.welcome))
 
-```text
-format = ANDROID_SDK
-zip = false
-filterNamespace = ["app"]
-filterState = ["REVIEWED"]
-fileStructureTemplate = {namespace}/{languageTag}.{extension}
+Text(text)
 ```
 
-`app` 是 Demo 的默认 namespace。SDK 和探测脚本访问
-`<publicUrl>/manifest.json` 与 `<publicUrl>/app/<locale>.json`。独立 AAR：
+切换语言或主动刷新：
+
+```kotlin
+Lingora.instance.setLocale("ja")
+lifecycleScope.launch { Lingora.instance.refresh() }
+```
+
+最后构建 Demo：
 
 ```bash
-../sdk/gradlew -p ../sdk :lingora-android-sdk:assembleRelease
+./gradlew :app:assembleDebug
 ```
-
-### 动态文案测试页
-
-Demo 首页提供 `welcome`、`welcome_name`、`local_notice`、`items_count`、`weekdays`、`en_month`
-按钮。`local_notice` 只由 App 的 `values-ja/local_strings.xml` 管理，用于验证 Lingora 和 pull
-都没有该 Key 时的 APK fallback。点击按钮会弹窗
-显示当前 Lingora 值；在后台重新发布后，先点 `Refresh published values`，再点同一个 Key，
-即可对比新旧值。刷新沿用 SDK 的条件请求和本地 fallback，不需要重新构建 APK。
-
-Demo App 自己在 `MainActivity.kt` 中把 SDK 的 `tFlow`、`tPluralFlow`、`tArrayFlow` 收集为
-Compose State。该封装属于使用方项目，不属于 SDK；其他项目可以按自己的 Compose 架构封装。
-其中 `en_month` 直接读取独立 `values/arrays.xml` 中的 `R.array.en_month`，用于验证该文件也被
-Android 编译并通过 CI push 到 Lingora。
-
-SDK 的 GitHub Packages 接入和运行时流程见
-[SDK 接入指南](../sdk/README.md)。
-
-CLI 使用 Lingora `/api/v1` 的 Branch、Import、Export 等公开接口；
-Project ID 使用 UUID。命令支持独立调用及 `--json` 输出，不需要消费项目了解实现。

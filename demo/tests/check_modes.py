@@ -12,7 +12,7 @@ def main() -> None:
     cases = (
         (["-PlingoraSdkMode=unknown"], "lingoraSdkMode must be local, dev or release"),
         (["-PlingoraSdkMode=local", "-PlingoraLocalSdkPath=/nonexistent-sdk"], "Local SDK not found"),
-        (["-PlingoraSdkMode=dev"], "Maven mode requires a fixed X.Y.Z"),
+        (["-PlingoraSdkMode=dev", "-PlingoraSdkVersion="], "Maven mode requires a fixed X.Y.Z"),
         (["-PlingoraSdkMode=release", "-PlingoraSdkVersion=1.+"], "Maven mode requires a fixed X.Y.Z"),
     )
     for arguments, message in cases:
