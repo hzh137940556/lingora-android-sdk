@@ -32,6 +32,7 @@ scripts -> public HTTP/file boundaries
   `io.lingora:lingora-android:X.Y.Z`。版本映射统一维护在 `scripts/sdk_release.py`。
 - 发布必须先通过 `Android SDK CI`，再经过 `android-sdk-release` Environment 人工批准；
   不允许缺少审批配置、覆盖包版本、移动版本 Tag，或把发布 Job 设为分支必需检查。
+- 发布环境仅配置 `hzh137940556` 为审批人，允许自审，禁止管理员绕过，且只允许 `android-sdk-*` Tag。
 - Demo 的 SDK 依赖统一在 `app/build.gradle.kts` 中切换，本地 module、正式 Maven 包和测试
   Maven 包只能启用其中一项，不使用额外的依赖替换脚本或开关。
 - 发布后 CI 只修改临时工作区中启用的 SDK 依赖，让 Demo 消费刚上传的 Maven 包并构建；

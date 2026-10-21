@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENT = "android-sdk-release"
 VERSION_PATTERN = r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){2}"
-REVIEWERS = {"hzhbrain", "hzh137940556"}
+REVIEWERS = {"hzh137940556"}
 
 
 # 保持渠道、Tag、分支和 Maven 坐标的一致映射。
@@ -127,7 +127,7 @@ def github_json(repository: str, path: str) -> dict:
     return data
 
 
-# 要求两个指定审批人、允许自审、禁止管理员跳过，并且仅开放版本 Tag。
+# 要求唯一指定审批人、允许自审、禁止管理员跳过，并且仅开放版本 Tag。
 def validate_environment(environment: dict, policies: dict) -> None:
     rules = environment.get("protection_rules", [])
     reviewers_rule = next((rule for rule in rules if rule.get("type") == "required_reviewers"), {})
@@ -137,7 +137,7 @@ def validate_environment(environment: dict, policies: dict) -> None:
         if item.get("type") == "User"
     }
     if reviewers != REVIEWERS or reviewers_rule.get("prevent_self_review") is not False:
-        raise ValueError("发布环境必须配置 hzhbrain 和 hzh137940556 为审批人，并允许自己批准")
+        raise ValueError("发布环境必须仅配置 hzh137940556 为审批人，并允许自己批准")
     if environment.get("can_admins_bypass") is not False:
         raise ValueError("发布环境必须关闭管理员跳过审批")
     policy = environment.get("deployment_branch_policy") or {}

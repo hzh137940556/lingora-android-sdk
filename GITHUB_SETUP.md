@@ -21,7 +21,7 @@
 
 进入 [Settings → General](https://github.com/hzh137940556/lingora-android-sdk/settings)。
 
-- 当前保持 **Private**，本次迁移不自动改为公开。
+- 当前仓库已由所有者设为 **Public**，可配置下文的人工审批；若以后改回私有，请先确认套餐支持所需门禁。
 - GitHub Free 的公开仓库支持分支/Tag Rulesets；私有仓库需要 Pro、Team 或 Enterprise 等支持的套餐。
 - **仅升级 Pro 不能满足私有仓库的 Environment 人工审批要求**：Free、Pro、Team 的
   `Required reviewers` 仅支持公开仓库。保留私有且保留原生人工审批，需要支持该能力的 Enterprise 方案。
@@ -32,15 +32,15 @@
 参考：[Rulesets 可用范围](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)、
 [Environment 审批可用范围](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)。
 
-## 2. 配置协作者
+## 2. 确认发布审批账号
 
-进入 [Settings → Collaborators](https://github.com/hzh137940556/lingora-android-sdk/settings/access)，
-邀请原审批账号 `hzhbrain` 并等待接受，确保该账号可以访问仓库和执行发布审批。
-仓库所有者 `hzh137940556` 已具备管理员权限。
+当前唯一发布审批账号为 `hzh137940556`，仓库所有者已具备管理员权限，
+无需为了发布审批邀请其他账号。若后续增加协作者，可在
+[Settings → Collaborators](https://github.com/hzh137940556/lingora-android-sdk/settings/access) 单独配置访问权限。
 
-源码仍严格要求审批人集合为 `hzhbrain`、`hzh137940556`，任一人批准即可。
-如果原账号无法继续使用，需要先确认替代审批人，再同步修改 `scripts/sdk_release.py`、测试和文档；
-不能只在网页上删掉一个审批人，否则发布校验会失败。
+源码严格要求审批人集合仅为 `hzh137940556`，并允许该账号批准自己发起的发布。
+后续若更换审批人，需要同步修改 `scripts/sdk_release.py`、测试和文档；
+不能只在网页上变更名单，否则发布校验会失败。
 
 ## 3. 确认 Actions 与权限
 
@@ -85,7 +85,7 @@
 进入 [Settings → Environments](https://github.com/hzh137940556/lingora-android-sdk/settings/environments)，
 创建 **`android-sdk-release`**，名称必须完全一致：
 
-1. 勾选 `Required reviewers`，添加 `hzhbrain`、`hzh137940556`，任一账号批准即可。
+1. 勾选 `Required reviewers`，仅添加 `hzh137940556`，由该账号批准发布。
 2. **不勾选** `Prevent self-review`，允许发布者批准自己的发布；这是发布审批，不是 PR 审核。
 3. **关闭** `Allow administrators to bypass configured protection rules`。
 4. `Deployment branches and tags` 选择 `Selected branches and tags`。
