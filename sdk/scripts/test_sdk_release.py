@@ -1,4 +1,4 @@
-# 验证 SDK 渠道映射、Git 来源、审批门禁与消费依赖切换，远端访问均使用模拟响应。
+# 验证 SDK 渠道映射、Git 来源与审批门禁，远端访问均使用模拟响应。
 from __future__ import annotations
 
 import contextlib
@@ -61,72 +61,6 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn(f"### SDK 发布信息 [{channel}] — 0.1.0", summary.read_text())
 
 
-# 在隔离文件中验证 CI 切换与 Demo 的手动依赖声明保持同一入口。
-class DemoDependencyTests(unittest.TestCase):
-    # 所有依赖改写仅发生在临时目录，禁止触及工作仓库。
-    def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        root = Path(directory.name)
-        self.build_file = root / "app" / "build.gradle.kts"
-        self.build_file.parent.mkdir()
-        root_patch = patch.object(sdk, "ROOT", root)
-        root_patch.start()
-        self.addCleanup(root_patch.stop)
-
-    # 默认本地依赖可以切换到任一渠道，其他依赖与注释保持不变。
-    def test_local_dependency_switches_to_each_channel(self) -> None:
-        source = (
-            'dependencies {\n    implementation(project(":lingora-android-sdk"))\n'
-            '    // implementation("io.lingora:lingora-android:0.1.0")\n'
-            '    implementation(libs.androidx.core.ktx)\n}\n'
-        )
-        for channel in ("dev", "release"):
-            with self.subTest(channel=channel):
-                self.build_file.write_text(source, encoding="utf-8")
-                release = sdk.Release(channel, "0.2.0")
-                sdk.prepare_demo(release)
-                expected = source.replace(
-                    'implementation(project(":lingora-android-sdk"))',
-                    f'implementation("{release.coordinate}")',
-                )
-                self.assertEqual(self.build_file.read_text(encoding="utf-8"), expected)
-
-    # 已选择远端依赖时，CI 仍须使用刚发布的渠道和版本而不是旧坐标。
-    def test_existing_maven_dependency_is_updated(self) -> None:
-        for artifact in ("lingora-android", "lingora-android-dev"):
-            with self.subTest(artifact=artifact):
-                self.build_file.write_text(
-                    f'    implementation("io.lingora:{artifact}:0.1.0") // SDK\n', encoding="utf-8",
-                )
-                sdk.prepare_demo(sdk.Release("dev", "0.2.0"))
-                self.assertEqual(
-                    self.build_file.read_text(encoding="utf-8"),
-                    '    implementation("io.lingora:lingora-android-dev:0.2.0") // SDK\n',
-                )
-
-    # 没有启用 SDK、仅有注释或同时启用多个 SDK 时，拒绝写入而不是猜测。
-    def test_missing_or_multiple_dependencies_are_not_modified(self) -> None:
-        for source in (
-            'dependencies {}\n',
-            '// implementation(project(":lingora-android-sdk"))\n',
-            'implementation(project(":lingora-android-sdk"))\n'
-            'implementation("io.lingora:lingora-android:0.1.0")\n',
-        ):
-            with self.subTest(source=source):
-                self.build_file.write_text(source, encoding="utf-8")
-                with self.assertRaisesRegex(ValueError, "只能启用一条"):
-                    sdk.prepare_demo(sdk.Release("release", "0.2.0"))
-                self.assertEqual(self.build_file.read_text(encoding="utf-8"), source)
-
-    # 工作流的命令入口直接生成与渠道映射一致的普通 implementation 声明。
-    def test_cli_prepares_demo_dependency(self) -> None:
-        self.build_file.write_text('implementation(project(":lingora-android-sdk"))\n', encoding="utf-8")
-        self.assertEqual(sdk.main(["prepare-demo", "--channel", "release", "--version", "0.2.0"]), 0)
-        self.assertEqual(
-            self.build_file.read_text(encoding="utf-8"),
-            'implementation("io.lingora:lingora-android:0.2.0")\n',
-        )
 
 
 # 使用隔离 Git 仓库验证真实提交关系，不访问工作仓库或远端。

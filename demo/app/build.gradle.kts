@@ -1,9 +1,14 @@
-// 配置 Demo 构建，并在 dependencies 中统一选择 SDK 的本地或 Maven 依赖。
+// 构建独立 Demo，消费固定 Maven 坐标；本地替换仅由 Demo settings 配置。
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// 依赖只声明一次，渠道决定包名；settings 负责校验模式、版本和本地替换。
+val sdkMode = providers.gradleProperty("lingoraSdkMode").getOrElse("local")
+val sdkArtifact = if (sdkMode == "dev") "lingora-android-dev" else "lingora-android"
+val sdkVersion = providers.gradleProperty("lingoraSdkVersion").getOrElse("0.1.0-SNAPSHOT")
 
 val demoApplicationId = providers.gradleProperty("demoApplicationId")
     .getOrElse("com.example.myapplication")
@@ -62,10 +67,7 @@ android {
 }
 
 dependencies {
-    // SDK 引入方式三选一；切换时注释当前行，再启用目标行。
-    implementation(project(":lingora-android-sdk"))
-    // implementation("io.lingora:lingora-android:0.1.0") // 远端正式包
-    // implementation("io.lingora:lingora-android-dev:0.1.1") // 远端测试包
+    implementation("io.lingora:$sdkArtifact:$sdkVersion")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

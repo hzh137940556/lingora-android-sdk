@@ -3,7 +3,7 @@ name: Android SDK CI and Release
 run-name: >-
   ${{ startsWith(github.ref, 'refs/tags/android-sdk-')
       && format('Publish Android SDK [{0}] — {1}', startsWith(github.ref, 'refs/tags/android-sdk-dev-') && 'dev' || 'release', github.ref_name)
-      || format('Test and build SDK and Demo — {0}', github.head_ref || github.ref_name) }}
+      || format('Android SDK CI — {0}', github.head_ref || github.ref_name) }}
 
 on:
   pull_request:
@@ -18,11 +18,12 @@ permissions:
 defaults:
   run:
     shell: bash --noprofile --norc -euo pipefail {0}
+    working-directory: sdk
 
 jobs:
   verify:
     # 配置分支必需检查时使用此显示名，内部 verify 标识保持稳定。
-    name: Test and build SDK and Demo
+    name: Android SDK CI
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -35,6 +36,7 @@ jobs:
       coordinate: ${{ steps.release.outputs.coordinate }}
       sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
+      branch: ${{ steps.release.outputs.branch }}
 
     steps:
       - name: Checkout
@@ -70,7 +72,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Test and build SDK and Demo
+      - name: Test SDK and validate Maven publication
         env:
           SDK_VERSION: ${{ steps.release.outputs.version || '0.1.0-SNAPSHOT' }}
           SDK_CHANNEL: ${{ steps.release.outputs.channel || 'release' }}
@@ -152,7 +154,7 @@ jobs:
             :lingora-android-sdk:publishReleasePublicationToGitHubPackagesRepository \
             -PVERSION_NAME="$SDK_VERSION" -PSDK_CHANNEL="$SDK_CHANNEL" \
             --no-daemon
-          # 上传成功后再记录结果；后续 Demo 验收失败不代表包未上传。
+          # 上传成功后再记录结果；Demo 在独立工作流中验收，不影响上传结果。
           printf '::notice title=SDK uploaded::%s -> %s\n' "$SDK_COORDINATE" "$MAVEN_REPOSITORY_URL"
           {
             printf '## ✅ SDK 包已上传\n\n'
@@ -163,12 +165,29 @@ jobs:
             printf '\n```kotlin\nimplementation("%s")\n```\n' "$SDK_COORDINATE"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Build Demo against the downloaded package
+  demo-smoke-dispatch:
+    # 调度权与包写权限隔离；触发失败不改变包已上传的事实。
+    name: Request independent Demo package smoke
+    needs: [verify, publish]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-sdk-')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Demo with verified coordinates and SHA
+        continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.verify.outputs.channel }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          SHA: ${{ needs.verify.outputs.sha }}
+          BRANCH: ${{ needs.verify.outputs.branch }}
+        working-directory: ${{ runner.temp }}
         run: |
-          python3 scripts/sdk_release.py prepare-demo \
-            --channel "$SDK_CHANNEL" --version "$SDK_VERSION"
-          ./gradlew :app:assembleDebug \
-            -PVERSION_NAME="$SDK_VERSION" -PSDK_CHANNEL="$SDK_CHANNEL" \
-            --refresh-dependencies --no-daemon
+          if gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/android-demo-ci.yml/dispatches" \
+            -f ref="$BRANCH" -f "inputs[channel]=$CHANNEL" -f "inputs[version]=$VERSION" -f "inputs[sha]=$SHA"; then
+            printf 'Demo smoke 已请求：%s %s @ %s；请另行检查 Demo 工作流结果。\n' "$CHANNEL" "$VERSION" "$SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '::warning::SDK 已上传，但 Demo smoke 未触发。请确认 Demo 工作流已进入默认分支，再手动运行。\n'
+            printf '⚠️ SDK 已上传，Demo smoke 尚未触发/验收。\n' >> "$GITHUB_STEP_SUMMARY"
+          fi

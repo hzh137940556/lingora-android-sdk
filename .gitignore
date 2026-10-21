@@ -17,4 +17,6 @@ keystore.properties
 signing.properties
 /scripts/.env
 /scripts/lingora.android.json
+/demo/scripts/.env
+/demo/scripts/lingora.android.json
 .lingorarc

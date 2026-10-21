@@ -1,64 +1,72 @@
 # 项目开发规范
 
-本文件适用于整个 Lingora Android SDK 与 Demo 仓库。
+本仓库包含两个独立 Gradle build：`sdk/` 发布 SDK，`demo/` 消费 SDK。
 
 ## 通用原则
 
-- 默认使用中文说明和文档；代码标识符、命令、库名与协议字段保持原文。
-- 先阅读现有代码、测试和配置，再进行最小范围修改，不删除用户已有改动。
-- 优先复用现有实现、标准库和已有依赖，非必要不新增抽象或依赖。
-- 禁止提交 Secret、Token、密码、本机配置、签名文件、生成物和缓存。
-- 新增源码文件时，在文件顶部添加简洁的中文模块职责注释；新增类、函数或方法时，在声明上方添加简洁的中文职责注释。
+- 默认使用中文说明，代码标识符、命令和协议字段保持原文。
+- 先读现有实现和测试，做最小范围修改，不删除用户现有改动。
+- 禁止提交 Secret、Token、本机配置、签名、缓存和生成物。
+- 新增源码文件、类、函数和方法必须有简洁中文职责注释，职责变化时同步更新。
+- 两个 build 分别维护 settings、wrapper、插件、依赖和构建输入；不得相互读取内部 Gradle 配置。
+- 不更改现有 Java 17、Gradle 8.13、AGP 8.13.2、Kotlin 2.0.21 工具链，除非任务明确要求。
 
-## 模块边界
+## SDK 边界
 
-```text
-app -> lingora-android-sdk
-lingora-android-sdk -> Android/Kotlin runtime dependencies
-scripts -> public HTTP/file boundaries
-```
+- `sdk/settings.gradle.kts` 只包含 `:lingora-android-sdk`，不包含 App 或 Demo。
+- SDK 不依赖 App package、Compose、CLI、Delivery 环境值或 Demo 配置。
+- 保持公共 API 与 Kotlin package `io.lingora.android` 兼容；公开协程类型需要 `api` 依赖。
+- `sdk/scripts/sdk_release.py` 统一管理版本、渠道、分支、Tag 和 Maven 坐标；不得改写或构建 Demo。
+- develop 的 `android-sdk-dev-X.Y.Z` -> `io.lingora:lingora-android-dev:X.Y.Z`。
+- main 的 `android-sdk-X.Y.Z` -> `io.lingora:lingora-android:X.Y.Z`。
+- 发布要求整个 Git 工作区干净并与来源分支同步；SDK 本地 verify 不调用根目录聚合 verify。
+- 版本 Tag 先通过 `Android SDK CI`，再经过 `android-sdk-release` 人工审批。
+- 审批人仅 `hzh137940556`，允许自审，禁止管理员绕过，仅允许 Tag 规则 `android-sdk-*`。
+- 不允许审批缺失、重复版本、移动/删除版本 Tag；仅 publish Job 拥有包写权限。
+- `check_publication.py` 验证 AAR/POM/metadata/sources、坐标、版本、校验和、API 依赖及无 App 类。
 
-- `app` 是示例应用，可以依赖 SDK；SDK 不得依赖 App、App package 或 Compose UI。
-- SDK 保持 UI 框架无关，只暴露 Android/Kotlin 类型和明确的异步状态边界。
-- `scripts/` 是独立构建工具，不导入 App 或 SDK 的运行时代码。
-- 翻译 CLI 在 Lingora 主仓库实现并独立发布；本仓库只安装固定版本并调用 `lingora`，不复制或导入实现。
-- `scripts/mock_ci.sh` 是本仓库的 Demo 编排入口，只串联已安装 CLI 的 `push`、`pull`，上传失败不得继续下载；不依赖 `lingora mock-ci` 或旧翻译脚本。
-- CLI 首版发布并完成安装验收前暂留旧翻译脚本，之后再清理；`sdk_release.py` 等 Maven 发布工具必须保留。
-- App 通过 `lingoraContentDeliveryUrl` Gradle property 或 `LINGORA_CONTENT_DELIVERY_URL` 构建环境变量配置公开 URL，前者优先；不读取 CLI 配置，正常 Gradle 构建不执行 CLI。
-- 开发者维护的资源保留在 App 源码目录；同步生成的资源保留在被忽略的 `generated/`，不手工修改或提交。
-- API Key 只允许通过 CI Secret 注入，不写入版本化配置；App 运行时只使用公开的 Content Delivery URL。
-- SDK 两个发布渠道使用相同源码与 Kotlin package：`develop` 的 `android-sdk-dev-X.Y.Z` 发布
-  `io.lingora:lingora-android-dev:X.Y.Z`；`main` 的 `android-sdk-X.Y.Z` 发布
-  `io.lingora:lingora-android:X.Y.Z`。版本映射统一维护在 `scripts/sdk_release.py`。
-- 发布必须先通过 `Test and build SDK and Demo` 检查，再经过 `android-sdk-release` Environment 人工批准；
-  不允许缺少审批配置、覆盖包版本、移动版本 Tag，或把发布 Job 设为分支必需检查。
-- 发布环境仅配置 `hzh137940556` 为审批人，允许自审，禁止管理员绕过，且只允许 `android-sdk-*` Tag。
-- Demo 的 SDK 依赖统一在 `app/build.gradle.kts` 中切换，本地 module、正式 Maven 包和测试
-  Maven 包只能启用其中一项，不使用额外的依赖替换脚本或开关。
-- 发布后 CI 只修改临时工作区中启用的 SDK 依赖，让 Demo 消费刚上传的 Maven 包并构建；
-  默认仍使用本地 module，消费验收失败不回滚或覆盖已经发布的版本。
+## Demo 边界
 
-## 命名与测试
+- `demo/settings.gradle.kts` 只包含 `:app`。通过 `lingoraSdkMode=local|dev|release` 选择 SDK。
+- App 只声明一条 Maven dependency；local 模式用 Composite Build 显式替换成独立 SDK。
+- dev/release 必须指定固定 `lingoraSdkVersion=X.Y.Z`，不得使用动态版本或自动回退源码。
+- 只有 local 模式读取 `lingoraLocalSdkPath`（默认 ../sdk）；远端模式不检查该目录。
+- 两个 Maven 包含相同的类，必须二选一，不修改 Kotlin import。
+- App 独立配置 App ID、当前语言、公开 Delivery URL，不写入 API Key。
+- Delivery URL 优先级为 Gradle property `lingoraContentDeliveryUrl` > 环境变量 `LINGORA_CONTENT_DELIVERY_URL`；缺失时保留 APK fallback。
+- CLI 来自 Lingora 主仓库，本仓库只安装 `demo/lingora-cli.version` 固定版本并调用公开命令。
+- `demo/scripts/mock_ci.sh` 只编排已安装 CLI 的 push/pull，失败立即退出；正常 Gradle 构建不运行 CLI。
+- CLI 首版发布并完成安装验收前保留旧翻译脚本，后续单独清理，不误删 Maven 发布工具。
+- CLI 配置位于 Demo，资源相对配置文件；生成资源仅写 `demo/generated/` 并忽略，API Key 只通过环境/Secret。
+- Demo CI 独立于 SDK 发包：普通 CI 验证 local 和两个 Maven fixture；dispatch 验证真实已发布包。
+- fixture init script 只用于测试，不用于正常接入。真实包 smoke 不加载 SDK 源码、不改写依赖文件。
+- 调度 Job 仅 actions:write；dispatch 失败必须提示尚未验收，不能伪称下载成功或回滚已上传包。
 
-- Kotlin 类和接口使用 `PascalCase`，函数和变量使用 `camelCase`，常量使用 `UPPER_SNAKE_CASE`；package 使用小写分段名称。
-- App 单元测试放在 `app/src/test/`，设备测试放在 `app/src/androidTest/`，SDK 单元测试放在 `lingora-android-sdk/src/test/`。
-- SDK 变更优先使用 JVM 单元测试覆盖纯逻辑；依赖 Android 运行时或 UI 的行为再使用 Android 测试。
-- 没有可用设备或模拟器时不运行 `connectedAndroidTest`，并明确说明设备测试未验证。
+## 标准命令与验证
 
-## 标准命令
+仓库根目录只转发命令：
 
 ```bash
-make test-cli
-make test-release
+make verify-sdk
+make verify-demo
 make verify
-./gradlew :lingora-android-sdk:test
-./gradlew :app:testDebugUnitTest
-./gradlew :app:assembleDebug
-./gradlew :lingora-android-sdk:assembleRelease
+make test-release
+make test-cli
 ```
 
-维护者命令：`make publish-dev VERSION=X.Y.Z`（develop）与 `make publish VERSION=X.Y.Z`（main）。
-发布命令会创建并推送 Tag、触发远端 CI；仅在明确要求发版时执行。仅验证 Maven 产物时使用
-`make publish-local VERSION=X.Y.Z SDK_CHANNEL=dev|release`，不会推送 Tag 或远端包。
+独立工程命令：
 
-修改后运行最小充分验证并检查实际 diff；无法运行的检查需要说明原因和风险。
+```bash
+make -C sdk verify VERSION=0.1.0 SDK_CHANNEL=dev
+make -C sdk verify VERSION=0.1.0 SDK_CHANNEL=release
+cd demo
+./gradlew :app:assembleDebug -PlingoraSdkMode=local
+./gradlew :app:assembleDebug -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.0
+```
+
+仅明确要求发版时执行根目录 `make publish-dev VERSION=X.Y.Z` / `make publish VERSION=X.Y.Z`。
+这会推送 Tag 并触发真实审批。验证产物使用 sdk verify，产物仅写入 sdk/build/verified-maven。
+已有版本不可覆盖，消费验收失败也必须用新版本修复。
+
+修改后运行目标测试、必要构建与 git diff --check。结构变化同时更新文档和本文件。
+无可用设备时不运行 connectedAndroidTest，并明确说明设备测试、真实发布或 Delivery 未验证。

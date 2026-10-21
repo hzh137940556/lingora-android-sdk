@@ -69,19 +69,9 @@ SDK 要求 App 的 `minSdk >= 24`。
 两者的 Kotlin `package` 都是 `io.lingora.android`，切换依赖不需要修改 import。
 两个包分别管理版本；每个包已发布的版本不可重用。不要使用动态版本号作为正式项目的依赖。
 
-如果正在修改 SDK 源码，可以临时使用本地 module：
-
-```kotlin
-// settings.gradle.kts
-include(":lingora-android-sdk")
-
-// app/build.gradle.kts
-implementation(project(":lingora-android-sdk"))
-```
-
-本仓库 Demo 已配置上述 Maven 仓库；只需在 `app/build.gradle.kts` 中启用本地、正式包或测试包
-对应的一条 `implementation`，再执行 Gradle Sync 或 `./gradlew :app:assembleDebug`。
-无需使用额外的依赖替换脚本；远端模式需要下载凭据，本地源码模式不需要。
+本仓库有独立的 SDK 和 Demo build，不再从 Demo 中 include SDK module。
+本地开发通过 Composite Build 替换同一 Maven 坐标；切换方法见 [Demo 文档](../demo/README.md#切换-sdk-来源)。
+SDK 本身不读取 Demo 配置，也不要求安装 CLI。以下 CLI 与 App 配置仅适用于消费项目，不属于 SDK 发布输入。
 
 ## 第三步：安装固定版本 CLI
 
@@ -204,12 +194,12 @@ lingora --config ci/lingora.environment-a.json delivery check --alias current
 ```
 
 URL、namespace 和语言应与服务端 Delivery 一致；未配置 URL 时验证 APK fallback。
-本地 SDK 和 Maven SDK 的切换仍仅修改依赖声明，与 CLI 版本无关。
+本仓库 Demo 通过 Gradle 属性切换 SDK 来源，与 CLI 版本无关。
 
 ## 发布 SDK（维护者）
 
 发布由 GitHub Actions 完成，使用仓库自动生成的 `GITHUB_TOKEN`，不需要额外发布 Token。
-维护者在仓库根目录执行对应命令：
+维护者在仓库根目录执行对应命令（根 Makefile 只转发到 sdk/）：
 
 | 渠道 | 分支 | 命令 | Tag | Maven 坐标 |
 | --- | --- | --- | --- | --- |
@@ -218,33 +208,27 @@ URL、namespace 和语言应与服务端 Delivery 一致；未配置 URL 时验�
 
 两种命令都要求工作区干净、本地分支与远端同步、Tag 尚未使用。版本号为没有前导零的
 `X.Y.Z`；再次测试使用新的测试版本，例如 `0.1.1`，不会占用正式包的同版本号。
-`scripts/sdk_release.py` 统一处理渠道、版本、分支、Tag 与 Maven 包名映射。
+`sdk/scripts/sdk_release.py` 统一处理渠道、版本、分支、Tag 与 Maven 包名映射。
 
 命令会先执行测试和构建，再创建带说明的 Tag 并推送。推送失败时保留本地 Tag，并提示
 `git push origin <tag>` 重试；不要删除或移动已经发布的 Tag。
 
-工作流分为两个 Job：
+SDK 发布与 Demo 验收分开运行：
 
-1. `verify`（检查名 `Test and build SDK and Demo`）：运行 Demo CLI 编排与发布门禁脚本回归测试、SDK 单元测试、Demo 单元测试、
-   Demo Debug 构建及 SDK Release 构建。普通 PR 和 `main`、`develop` 推送也执行这个 Job。
-2. `publish`：只在版本 Tag 校验成功后出现，等待人工批准，随后检查包版本不存在，再发布
-   AAR、sources JAR、POM 和 Gradle metadata；最后在临时工作区中将 Demo 启用的 SDK
-   `implementation` 改为该坐标，从 GitHub Packages 下载并构建，验证已上传的二进制可被消费。
-   只有此 Job 有 `packages: write` 权限；校验 Job 仅有包读取权限，以支持 Demo 选择远端依赖。
+1. `verify`（固定检查名 `Android SDK CI`）：仅运行发布门禁回归、SDK 单元测试、Release 构建，
+   并向 `sdk/build/verified-maven` 生成 Maven 产物，检查 AAR、POM、sources、metadata、版本、
+   校验和及协程 API 依赖。没有 Demo 也可运行。
+2. `publish`：Tag 来源校验通过后等待人工批准，在相同 SHA 重新核对来源与审批配置，
+   拒绝重复版本，随后上传 SDK；只有此 Job 有 `packages: write`。
+3. 独立调度 Job 只有 `actions: write`，请求 `Android Demo CI` 下载刚发布包。SDK 发布不加载、
+   改写或编译 Demo。调度失败只提示未验收，不伪称包上传失败；Demo 失败不会覆盖或回滚已发布包。
 
-发布运行标题包含渠道与 Tag，例如 `Publish Android SDK [dev] — android-sdk-dev-0.1.3`；
-等待审批的 Job 显示已校验的渠道与版本，例如 `Publish Android SDK [dev] — 0.1.3`，
-正式包对应 `[release]`。审批前 Summary 标题也突出渠道与版本。
-`android-sdk-release` 只是两个渠道共用的审批环境名，不能用它判断正在发布测试包还是正式包。
+发布运行标题和审批 Job 显示渠道与版本。Environment `android-sdk-release` 只是共用的审批门禁名称，
+不决定包渠道。在 Actions 核对 Maven 坐标、Tag、SHA，然后点击 `Review deployments` →
+`Approve and deploy`。批准后只使用已校验 SHA，上传成功后 Summary 提供上传地址、包列表和依赖声明。
 
-在 Actions 对应运行页核对 Summary 中的完整 Maven 坐标、Tag 与 SHA，然后点击
-`Review deployments` → `Approve and deploy`；拒绝则停止发布。批准后始终构建已校验的同一 SHA。
-`publish` 的 `Publish approved package` 日志会先显示 Maven 上传地址与依赖坐标；上传成功后，
-Actions Summary 会显示“SDK 包已上传”，包含可点击的仓库地址、包列表、渠道、Tag、SHA 和 Gradle 依赖声明。
-上传失败不会生成成功摘要；后续 Demo 消费验收失败也不会撤销已经上传的包。
-Tag 提交必须已经存在于对应的远端分支历史中；未合并的 PR 提交不能直接发包。
-正式包和测试包包含同样的类，消费项目必须二选一。仓库内 Demo 默认依赖本地 module，
-也支持在同一处依赖声明切换为远端包。
+Tag 提交必须已存在于对应远端分支历史，未合并 PR 不能直接发包。两个 Maven 包含相同类，消费项目必须二选一。
+独立 Demo smoke 的开通与手动重试见 [配置清单](../GITHUB_SETUP.md#7-启用独立-demo-验收)。
 
 ### 首次发布前：仓库所有者配置
 
@@ -261,8 +245,8 @@ GitHub Settings、旧仓库的包和本机凭据不会随源码迁移；审批�
    类型为 **Tag**，名称为 `android-sdk-*`。不要添加同名的 Branch 规则。
 4. `Settings` → `Rules` → `Rulesets` 新建 Active 的 Tag ruleset，目标为 `android-sdk-*`，
    启用 `Restrict updates` 和 `Restrict deletions`，不配置绕过权限，不限制新 Tag 的创建。
-5. `Test and build SDK and Demo` 在 PR 中成功运行后，将 `main`、`develop` 分支规则的必需检查设置为
-   `Test and build SDK and Demo`，不使用内部标识 `verify`；保留已有 PR 审核规则，
+5. `Android SDK CI` 在 PR 中成功运行后，将 `main`、`develop` 分支规则的必需检查设置为
+   `Android SDK CI`，不使用内部标识 `verify`；保留已有 PR 审核规则，
    不将 `publish` 或 `Publish Android SDK` 设为必需检查。
 
 审批配置完成后合并发布 PR，并通过 PR 将同一份发布配置同步到 `develop`。先发布测试包并在
@@ -271,13 +255,13 @@ GitHub Settings、旧仓库的包和本机凭据不会随源码迁移；审批�
 ### 本地验证
 
 本机需要 Java 17、Python 3、Android SDK 36（通过 `ANDROID_HOME` 或被忽略的 `local.properties`
-指定）和 GNU Make。只运行发布门禁回归测试：
+指定）和 GNU Make。以下命令在 sdk/ 下执行；只运行发布门禁与产物回归测试：
 
 ```bash
 make test-release
 ```
 
-完整的 SDK 与 Demo 校验：
+完整校验只读取 SDK，不加载 Demo；校验 Maven 产物写入 sdk/build/verified-maven，不写用户 Maven 缓存：
 
 ```bash
 make verify
@@ -299,7 +283,7 @@ make publish-local VERSION=0.1.0 SDK_CHANNEL=release
 重复版本必须更换版本号。其他仓库的 CI 消费包时，将具有 `read:packages` 权限的 PAT 保存为
 Secret，并通过 `GITHUB_ACTOR`、`GITHUB_TOKEN` 传给 Gradle。
 
-完整 Demo 说明见 [`../README.md`](../README.md)。
+完整 Demo 说明见 [Demo 文档](../demo/README.md)。
 
 ## 加载失败与重试
 

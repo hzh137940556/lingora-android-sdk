@@ -1,0 +1,141 @@
+name: Android Demo CI
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch'
+      && format('Demo Maven smoke [{0}] — {1} @ {2}', inputs.channel, inputs.version, inputs.sha)
+      || format('Android Demo CI — {0}', github.head_ref || github.ref_name) }}
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        options: [dev, release]
+        required: true
+      version:
+        description: Published X.Y.Z version
+        required: true
+      sha:
+        description: Full verified SDK/Demo commit SHA
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  local:
+    name: Demo local source
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - run: python3 demo/tests/check_modes.py
+      - run: make -C demo verify
+
+  maven-isolation:
+    name: Demo Maven fixture (${{ matrix.channel }})
+    if: github.event_name != 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [dev, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # 生产和消费分开检出；consumer 内没有 SDK，证明 Maven 模式不回退源码。
+      - uses: actions/checkout@v4
+        with:
+          path: producer
+          sparse-checkout: sdk
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: consumer
+          sparse-checkout: demo
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Produce a local Maven fixture (no remote upload)
+        env:
+          CHANNEL: ${{ matrix.channel }}
+        run: make -C producer/sdk verify VERSION=0.0.0 SDK_CHANNEL="$CHANNEL"
+      - name: Build isolated Demo from Maven files only
+        working-directory: consumer/demo
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          LINGORA_TEST_MAVEN_REPOSITORY: ${{ github.workspace }}/producer/sdk/build/verified-maven
+        run: |
+          test ! -d ../sdk
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug \
+            -PlingoraSdkMode="$CHANNEL" -PlingoraSdkVersion=0.0.0 \
+            -PlingoraLocalSdkPath=/nonexistent-sdk \
+            --init-script tests/fixture-repository.init.gradle.kts --no-daemon
+
+  published-package:
+    name: Demo published Maven (${{ inputs.channel }})
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      VERSION: ${{ inputs.version }}
+      SHA: ${{ inputs.sha }}
+    steps:
+      - name: Validate fixed publication inputs
+        run: |
+          [[ "$CHANNEL" == dev || "$CHANNEL" == release ]]
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          sparse-checkout: demo
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Download published package and build Demo
+        working-directory: demo
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          test ! -d ../sdk
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug \
+            -PlingoraSdkMode="$CHANNEL" -PlingoraSdkVersion="$VERSION" \
+            -PlingoraLocalSdkPath=/nonexistent-sdk --refresh-dependencies --no-daemon
+          printf '✅ Demo 已下载 Maven 包并构建：%s %s @ %s\n' "$CHANNEL" "$VERSION" "$SHA" >> "$GITHUB_STEP_SUMMARY"

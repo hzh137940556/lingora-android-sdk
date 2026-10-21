@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# 统一 SDK 的版本映射、代码来源、审批门禁、发版与发布后消费验收。
+# 仅管理 SDK 的版本、来源、审批与发布，不读取或构建 Demo。
 from __future__ import annotations
 
 import argparse
@@ -209,20 +209,6 @@ def publish(release: Release) -> None:
     git("push", "origin", f"refs/tags/{release.tag}")
 
 
-# 在 CI 临时工作区切换 Demo 的唯一 SDK 依赖，不修改注释中的备选依赖。
-def prepare_demo(release: Release) -> None:
-    build_file = ROOT / "app" / "build.gradle.kts"
-    pattern = r'(?m)^( *)implementation\((?:project\(":lingora-android-sdk"\)|"io\.lingora:lingora-android(?:-dev)?:[^"\n]+")\)'
-    source, count = re.subn(
-        pattern,
-        lambda match: f'{match[1]}implementation("{release.coordinate}")',
-        build_file.read_text(encoding="utf-8"),
-    )
-    if count != 1:
-        raise ValueError("Demo 必须且只能启用一条本地或 Maven SDK 依赖")
-    build_file.write_text(source, encoding="utf-8")
-
-
 # 向 CI 输出已验证的发布字段，并在审批摘要标题中突出渠道和版本。
 def report(release: Release, sha: str = "", output: Path | None = None) -> None:
     fields = {
@@ -241,11 +227,11 @@ def report(release: Release, sha: str = "", output: Path | None = None) -> None:
             stream.writelines(f"- {key}: `{value}`\n" for key, value in fields.items())
 
 
-# 提供 Makefile 和 GitHub Actions 共用的发版与消费验收入口。
+# 提供 SDK Makefile 和发布工作流共用的版本与发版入口。
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lingora Android SDK 发布校验与发版工具")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("info", "publish", "check-package", "prepare-demo"):
+    for name in ("info", "publish", "check-package"):
         command = commands.add_parser(name)
         command.add_argument("--channel", choices=("dev", "release"), required=True)
         command.add_argument("--version", required=True)
@@ -267,8 +253,6 @@ def main(argv: list[str] | None = None) -> int:
             publish(release)
         elif args.command == "check-package":
             check_package(release, args.repository)
-        elif args.command == "prepare-demo":
-            prepare_demo(release)
         else:
             report(release)
         return 0
