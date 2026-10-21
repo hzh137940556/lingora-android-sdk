@@ -36,8 +36,8 @@
 - App 独立配置 App ID、当前语言、公开 Delivery URL，不写入 API Key。
 - Delivery URL 优先级为 Gradle property `lingoraContentDeliveryUrl` > 环境变量 `LINGORA_CONTENT_DELIVERY_URL`；缺失时保留 APK fallback。
 - CLI 来自 Lingora 主仓库，本仓库只安装 `demo/lingora-cli.version` 固定版本并调用公开命令。
-- `demo/scripts/mock_ci.sh` 只编排已安装 CLI 的 push/pull，失败立即退出；正常 Gradle 构建不运行 CLI。
-- CLI 首版发布并完成安装验收前保留旧翻译脚本，后续单独清理，不误删 Maven 发布工具。
+- `demo/Makefile` 的 `mock_ci` 目标只编排已安装 CLI 的 push/pull，失败立即退出；正常 Gradle 构建不运行 CLI。
+- 本仓库不保留 CLI 的 push、pull、validate 或 delivery 实现副本；只通过固定版本的 PyPI 包调用公开命令，不误删 Maven 发布工具。
 - CLI 配置位于 Demo，资源相对配置文件；生成资源仅写 `demo/generated/` 并忽略，API Key 只通过环境/Secret。
 - Demo CI 独立于 SDK 发包：普通 CI 验证 local 和两个 Maven fixture；dispatch 验证真实已发布包。
 - fixture init script 只用于测试，不用于正常接入。真实包 smoke 不加载 SDK 源码、不改写依赖文件。
@@ -52,7 +52,6 @@ make verify-sdk
 make verify-demo
 make verify
 make test-release
-make test-cli
 ```
 
 独立工程命令：
@@ -61,6 +60,7 @@ make test-cli
 make -C sdk verify VERSION=0.1.0 SDK_CHANNEL=dev
 make -C sdk verify VERSION=0.1.0 SDK_CHANNEL=release
 cd demo
+make mock_ci
 ./gradlew :app:assembleDebug -PlingoraSdkMode=local
 ./gradlew :app:assembleDebug -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.0
 ```

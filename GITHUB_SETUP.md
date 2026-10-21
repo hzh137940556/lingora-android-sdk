@@ -100,12 +100,12 @@ Delivery URL 只在 Demo 注入：
 
 ```bash
 cd demo
-./gradlew :app:assembleDebug -PlingoraContentDeliveryUrl=https://cdn.example.com/your-prefix
+./gradlew :app:assembleDebug -PlingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1
 ```
 
 无 URL 时仍可构建并使用 APK fallback。CLI 配置、固定版本和生成资源均属于 demo/。
 API Key 只通过 `LINGORA_API_KEY` 环境/Secret 注入；正常 SDK/Demo Gradle CI 不调用 push/pull。
-`demo/scripts/mock_ci.sh` 会写服务端，只能在明确授权的项目上运行。
+`make -C demo mock_ci` 会写服务端，只能在明确授权的项目上运行。
 
 ## 6. 发布测试包，再发布正式包
 
