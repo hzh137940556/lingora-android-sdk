@@ -1,18 +1,18 @@
 {
-  "apiUrl": "http://127.0.0.1:8000",
-  "projectId": "00000000-0000-0000-0000-000000000000",
-  "branch": "your-branch",
+  "apiUrl": "https://lingora-dev.fun.brain.ai",
+  "projectId": "6acbf9e2-b605-40e4-90b1-066fbb1d4506",
+  "branch": "develop",
   "format": "ANDROID_XML",
   "push": {
     "files": [
       {
         "path": "../app/src/main/res/values/strings.xml",
-        "language": "en",
+        "language": "en-US",
         "namespace": "app"
       },
       {
         "path": "../app/src/main/res/values/arrays.xml",
-        "language": "en",
+        "language": "en-US",
         "namespace": "app"
       }
     ],
@@ -26,13 +26,13 @@
   },
   "pull": {
     "path": "../generated/lingora/res",
-    "languages": ["de", "fr", "zh-CN"],
+    "languages": ["ja", "zh-CN"],
     "namespaces": ["app"],
     "states": ["TRANSLATED", "REVIEWED"],
     "fileStructureTemplate": "values-{androidLanguageTag}/strings.{extension}",
     "emptyDir": true
   },
   "contentDeliveries": {
-    "current": "https://cdn.example.com/your-prefix"
+    "current": "https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1"
   }
 }

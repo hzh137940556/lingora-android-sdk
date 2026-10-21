@@ -52,8 +52,8 @@ local 模式无需 Maven 凭据。工具链由本目录独立维护，不读取 
 
 ## 多环境 CLI 配置
 
-翻译工具由 Lingora 主仓库独立发布，Android 只调用固定版本的命令，不复制或导入实现。
-首次 PyPI 发布并验证安装完成后使用：
+翻译工具由 Lingora 主仓库独立发布到 [PyPI](https://pypi.org/project/lingora-cli/)，Android
+只安装固定版本并调用公开命令，不复制或导入 push、pull、validate 或 delivery 实现：
 
 ```bash
 CLI_VERSION="$(tr -d '\r\n' < lingora-cli.version)"
@@ -62,49 +62,37 @@ lingora --version
 lingora init
 ```
 
-当前迁移阶段暂时保留旧翻译脚本；不要将它们继续复制到新接入项目。
-CLI 首版发布和安装验收完成后再清理旧文件；Maven 发布脚本不受影响。
+`demo/Makefile` 的 `mock_ci` 目标只负责依次调用已安装的 `lingora push` 和 `lingora pull`；
+具体实现和版本发布统一由 Lingora 主仓库维护。
+Maven 发布脚本与翻译 CLI 相互独立，本次清理不影响 SDK 发包。
 完整参数和无配置调用示例见 [CLI 命令手册](https://github.com/brain/lingora/blob/main/cli/COMMANDS.md)，
 安装与发布说明见 [Lingora CLI](https://github.com/brain/lingora/tree/main/cli)。
 
-`lingora init` 创建Demo 根目录配置，默认 namespace 为 `app`。本仓库也保留多文件配置模板：
-
-Lingora 不预设环境名称。使用者从同一个模板复制任意数量的配置，并让 CI 用 `--config` 显式选择：
-
-```bash
-mkdir -p ci
-cp scripts/lingora.android.example.json ci/lingora.environment-a.json
-cp scripts/lingora.android.example.json ci/lingora.environment-b.json
-cp scripts/lingora.android.example.json ci/lingora.environment-c.json
-```
-
-分别填写每份配置的 Lingora `apiUrl`、Project UUID、Branch、语言、namespace 和路径。配置使用
-`format`、`push.files`、`push.*`、`pull.*` 分组；相对路径都以所选配置文件所在
-目录为基准。所有配置必须把 `pull.path` 指向同一个 `../generated/lingora/res`。
+`lingora init` 可创建 Demo 根目录的本机配置；当前 Dev CI 使用仓库内无密钥配置
+`ci/lingora.dev.json`。其中固定 Lingora API、Project UUID、`develop` Branch、语言、namespace、
+资源路径和公开 Content Delivery URL；相对路径以 `demo/ci/` 为基准，`pull.path` 指向
+`../generated/lingora/res`。
 
 API Key 不允许写入 JSON，只通过 CI Secret 注入：
 
 ```bash
 export LINGORA_API_KEY='<CI secret>'
-lingora --config ci/lingora.environment-a.json pull
+lingora --config ci/lingora.dev.json pull
 ```
 
-更换环境时只替换配置路径；脚本不解析或硬编码环境名称。CLI 只提供独立操作，不提供
-`lingora mock-ci`。需要模拟 push 后 pull 时，由本仓库的 Demo 脚本编排：
+更换环境时只替换配置路径。CLI 只提供独立操作，不提供 `lingora mock-ci`；需要模拟
+push 后 pull 时，由 Demo Makefile 编排：
 
 ```bash
-# 使用 demo/.lingorarc
-./scripts/mock_ci.sh
+make mock_ci
 
-# 或显式选择环境配置
-./scripts/mock_ci.sh --config ci/lingora.environment-a.json
+# 使用其他无密钥配置
+make mock_ci LINGORA_CONFIG=ci/lingora.other.json
 ```
 
-脚本回到 demo/ 根目录，再依次调用已安装的 `lingora push`、`lingora pull`，不加载本仓库旧脚本
-或主仓库源码。脚本参数仅限两步共用的公共参数，例如 `--config`、`--branch`、`--timeout`。
-也可以通过 `LINGORA_BRANCH=your-branch ./scripts/mock_ci.sh` 注入分支。
-`--force-mode`、`--languages` 等单步参数放在各自命令后，或写入配置，不传给组合脚本。
-运行前需安装固定版本 CLI 并注入 `LINGORA_API_KEY`；脚本不自动读取 `.env`。
+`LINGORA_CONFIG` 默认是 `ci/lingora.dev.json`。Make 依次调用已安装的 `lingora push`、
+`lingora pull`；push 失败时不会继续 pull。命令不加载本仓库旧脚本或主仓库源码，运行前需
+安装固定版本 CLI 并注入 `LINGORA_API_KEY`。
 
 执行顺序为：
 
@@ -129,7 +117,7 @@ push app/src/main/res/values/strings.xml + values/arrays.xml（同一次 import�
 
 ```bash
 ./gradlew clean
-lingora --config ci/lingora.environment-a.json pull
+lingora --config ci/lingora.dev.json pull
 ./gradlew :app:installDebug
 ```
 
@@ -139,21 +127,21 @@ Branch 优先级为：命令行 `--branch`、
 `LINGORA_BRANCH`、配置文件 `branch`。
 
 ```bash
-lingora --config ci/lingora.environment-a.json pull \
+lingora --config ci/lingora.dev.json pull \
   --branch feature/payment-copy
 LINGORA_BRANCH=feature/payment-copy \
-  lingora --config ci/lingora.environment-a.json pull
+  lingora --config ci/lingora.dev.json pull
 ```
 
 也可以分别运行：
 
 ```bash
-lingora --config ci/lingora.environment-a.json push
-lingora --config ci/lingora.environment-a.json pull
-lingora --config ci/lingora.environment-a.json validate
+lingora --config ci/lingora.dev.json push
+lingora --config ci/lingora.dev.json pull
+lingora --config ci/lingora.dev.json validate
 ```
 
-Demo 的 `mock_ci.sh` 会先上传再下载，具有服务端写入副作用；`push` 使用配置中的
+Demo 的 `make mock_ci` 会先上传再下载，具有服务端写入副作用；`push` 使用配置中的
 `push.forceMode`，本仓库旧模板为 `OVERRIDE`，CLI 新模板的安全默认值为 `NO_FORCE`，因此本地基础文案发生变化后可重复执行；
 `push.overrideMode=RECOMMENDED` 会继续保护不可覆盖的已审核翻译，
 `push.removeOtherKeys=false` 不会删除服务端额外 Key。
@@ -186,21 +174,21 @@ Delivery 数组执行相同的长度检查，避免部分数组覆盖 APK fallba
 配置中的 `contentDeliveries` 别名完全由使用者定义，不是 Branch 名称。示例使用 `current`：
 
 ```bash
-lingora --config ci/lingora.environment-a.json delivery check --alias current
+lingora --config ci/lingora.dev.json delivery check --alias current
 ```
 
 App 的 Delivery URL 独立于 CLI 配置，由 Gradle property 或构建环境变量注入。
 优先级为 `lingoraContentDeliveryUrl` > `LINGORA_CONTENT_DELIVERY_URL` > 空 URL：
 
 ```bash
-./gradlew :app:assembleDebug -PlingoraContentDeliveryUrl=https://cdn.example.com/your-prefix
-LINGORA_CONTENT_DELIVERY_URL=https://cdn.example.com/your-prefix ./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug -PlingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1
+LINGORA_CONTENT_DELIVERY_URL=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1 ./gradlew :app:assembleDebug
 ```
 
 个人也可以写在被忽略的 `~/.gradle/gradle.properties` 中：
 
 ```properties
-lingoraContentDeliveryUrl=https://cdn.example.com/your-prefix
+lingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/dev/v1
 ```
 
 Application 使用 `BuildConfig.LINGORA_CONTENT_DELIVERY_URL` 初始化 SDK，不读取 CLI 配置。

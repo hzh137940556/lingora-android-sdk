@@ -1,10 +1,12 @@
-# Demo 只负责 App 和 CLI 编排测试，不创建 SDK Tag 或发布包。
+# Demo 只负责 App 验证和已安装 CLI 的命令编排，不创建 SDK Tag 或发布包。
 SHELL := /bin/sh
+LINGORA_CONFIG ?= ci/lingora.dev.json
 
-.PHONY: test-cli verify
+.PHONY: mock_ci verify
 
-test-cli:
-	python3 -m unittest discover -s scripts -p 'test_*.py' -v
+mock_ci:
+	lingora --config "$(LINGORA_CONFIG)" push
+	lingora --config "$(LINGORA_CONFIG)" pull
 
-verify: test-cli
+verify:
 	./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
