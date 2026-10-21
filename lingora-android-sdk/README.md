@@ -234,6 +234,9 @@ URL、namespace 和语言应与服务端 Delivery 一致；未配置 URL 时验�
 
 在 Actions 对应运行页核对 Summary 中的完整 Maven 坐标、Tag 与 SHA，然后点击
 `Review deployments` → `Approve and deploy`；拒绝则停止发布。批准后始终构建已校验的同一 SHA。
+`publish` 的 `Publish approved package` 日志会先显示 Maven 上传地址与依赖坐标；上传成功后，
+Actions Summary 会显示“SDK 包已上传”，包含可点击的仓库地址、包列表、渠道、Tag、SHA 和 Gradle 依赖声明。
+上传失败不会生成成功摘要；后续 Demo 消费验收失败也不会撤销已经上传的包。
 Tag 提交必须已经存在于对应的远端分支历史中；未合并的 PR 提交不能直接发包。
 正式包和测试包包含同样的类，消费项目必须二选一。仓库内 Demo 默认依赖本地 module，
 也支持在同一处依赖声明切换为远端包。
