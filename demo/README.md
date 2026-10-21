@@ -53,7 +53,10 @@ local 模式无需 Maven 凭据。工具链由本目录独立维护，不读取 
 ## 多环境 CLI 配置
 
 翻译工具由 Lingora 主仓库独立发布到 [PyPI](https://pypi.org/project/lingora-cli/)，Android
-只安装固定版本并调用公开命令，不复制或导入 push、pull、validate 或 delivery 实现：
+只调用固定版本的公开命令，不复制或导入 push、pull、validate 或 delivery 实现。`make mock_ci`
+通过 `uvx` 自动下载并缓存 `lingora-cli.version` 指定的版本；本机只需预先安装 `uv`。
+
+需要直接使用 `lingora init` 等命令时，可以安装同一个固定版本：
 
 ```bash
 CLI_VERSION="$(tr -d '\r\n' < lingora-cli.version)"
@@ -62,7 +65,7 @@ lingora --version
 lingora init
 ```
 
-`demo/Makefile` 的 `mock_ci` 目标只负责依次调用已安装的 `lingora push` 和 `lingora pull`；
+`demo/Makefile` 的 `mock_ci` 目标只负责依次调用固定版本 CLI 的 `lingora push` 和 `lingora pull`；
 具体实现和版本发布统一由 Lingora 主仓库维护。
 Maven 发布脚本与翻译 CLI 相互独立，本次清理不影响 SDK 发包。
 完整参数和无配置调用示例见 [CLI 命令手册](https://github.com/brain/lingora/blob/main/cli/COMMANDS.md)，
@@ -90,9 +93,9 @@ make mock_ci
 make mock_ci LINGORA_CONFIG=ci/lingora.other.json
 ```
 
-`LINGORA_CONFIG` 默认是 `ci/lingora.dev.json`。Make 依次调用已安装的 `lingora push`、
-`lingora pull`；push 失败时不会继续 pull。命令不加载本仓库旧脚本或主仓库源码，运行前需
-安装固定版本 CLI 并注入 `LINGORA_API_KEY`。
+`LINGORA_CONFIG` 默认是 `ci/lingora.dev.json`。Make 通过 `uvx` 依次调用固定版本的
+`lingora push`、`lingora pull`；push 失败时不会继续 pull。命令不加载本仓库旧脚本或主仓库
+源码，运行前需安装 `uv` 并注入 `LINGORA_API_KEY`。
 
 执行顺序为：
 
