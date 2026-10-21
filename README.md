@@ -41,7 +41,7 @@ cd demo
 
 ## CI 与发布
 
-- `Android SDK CI` 只测试 SDK 和 Maven 产物，不加载 Demo。发布审批、Tag 及两渠道坐标不变。
+- `Android SDK CI` 只测试 SDK 和 Maven 产物，不加载 Demo。两渠道使用独立审批环境，审批保护、Tag 及 Maven 坐标保持不变。
 - `Android Demo CI` 单独验证 local、dev/release Maven fixture；真实包发布后另行请求独立下载验收。
 - Demo 下载验收失败不改变“SDK 包已上传”的事实，也不覆盖已发布版本。
 - 发布与权限步骤见 [GitHub 配置清单](GITHUB_SETUP.md)；Demo、Delivery 与 CLI 见 [Demo 文档](demo/README.md)。

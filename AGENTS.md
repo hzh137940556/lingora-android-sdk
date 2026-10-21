@@ -20,8 +20,9 @@
 - develop 的 `android-sdk-dev-X.Y.Z` -> `io.lingora:lingora-android-dev:X.Y.Z`。
 - main 的 `android-sdk-X.Y.Z` -> `io.lingora:lingora-android:X.Y.Z`。
 - 发布要求整个 Git 工作区干净并与来源分支同步；SDK 本地 verify 不调用根目录聚合 verify。
-- 版本 Tag 先通过 `Android SDK CI`，再经过 `android-sdk-release` 人工审批。
-- 审批人仅 `hzh137940556`，允许自审，禁止管理员绕过，仅允许 Tag 规则 `android-sdk-*`。
+- 版本 Tag 先通过 `Android SDK CI`，再进入对应渠道的审批环境：dev 为 `android-sdk-dev`，release 为 `android-sdk-release`。
+- 两个环境审批人均仅 `hzh137940556`，允许自审，禁止管理员绕过；各自只配置一条 Tag 规则，dev 为 `android-sdk-dev-*`，release 为 `android-sdk-[0-9]*`。
+- 审批前后均校验当前渠道环境；配置通过后才导出环境名供工作流选择，缺失、宽泛或跨渠道规则必须停止，不回退到其他环境。
 - 不允许审批缺失、重复版本、移动/删除版本 Tag；仅 publish Job 拥有包写权限。
 - `check_publication.py` 验证 AAR/POM/metadata/sources、坐标、版本、校验和、API 依赖及无 App 类。
 

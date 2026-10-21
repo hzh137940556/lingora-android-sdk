@@ -42,20 +42,32 @@ Demo CI 独立展示结果；SDK 包不因 Demo 编译或配置而无法发布�
 ## 4. 配置人工审批
 
 在 [Environments](https://github.com/hzh137940556/lingora-android-sdk/settings/environments)
-创建 **`android-sdk-release`**，名称与 YAML 一致：
+创建两个 Environment，名称与发布脚本导出的环境名一致：
+
+| 渠道 | Environment | 唯一允许的 Tag 模式 |
+| --- | --- | --- |
+| dev | `android-sdk-dev` | `android-sdk-dev-*` |
+| release | `android-sdk-release` | `android-sdk-[0-9]*` |
+
+这两个模式是通配规则，不是正则表达式；版本格式仍由发布脚本严格校验为 `X.Y.Z`。
+Tag 保护 Ruleset 的 `android-sdk-*` 继续覆盖两渠道，但 Environment 不得沿用这个宽泛模式。
+两个环境分别配置以下相同的保护：
 
 1. Required reviewers **仅添加 hzh137940556**。
 2. 不勾 Prevent self-review，允许自己批准发布。
 3. 关闭 Allow administrators to bypass configured protection rules。
 4. Deployment branches and tags 选 Selected branches and tags。
-5. 只添加一条 **Tag** 规则：`android-sdk-*`，不是 Branch。
+5. 各自只添加表中的一条 **Tag** 规则，不是 Branch，不额外放行另一渠道。
 6. 不需要额外 Environment Secret。
 
-`sdk/scripts/sdk_release.py` 在审批前和审批后检查真实配置，缺少或放宽任何门禁都停止。
+`sdk/scripts/sdk_release.py` 在审批前和审批后检查当前渠道的真实配置，缺少或放宽任何门禁都停止。
+只有配置校验通过后，工作流才使用导出的环境名进入审批；不依赖 GitHub 自动创建环境，
+也不允许在环境缺失时回退到另一渠道。Summary 会记录当前审批环境。
 更换审批人必须同步更新脚本、测试与文档，不能只修改网页。
 
-一个 Environment 足够：它统一管理审批权限，不代表 dev/release 渠道；
-渠道由已验证 Tag 决定，不需要分别创建 Environment。
+审批弹窗会分别显示 `android-sdk-dev` 或 `android-sdk-release`；渠道仍由已验证 Tag 决定。
+从旧的共用环境迁移时，先完成正在执行的旧发布，再切换环境规则并合并配套代码；
+已有 Tag 固定的旧工作流不会自动切换环境，不移动 Tag，后续验证使用新的版本。
 
 ## 5. 配置本机与 Demo
 

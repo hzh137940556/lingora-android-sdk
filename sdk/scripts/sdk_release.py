@@ -15,12 +15,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-ENVIRONMENT = "android-sdk-release"
 VERSION_PATTERN = r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){2}"
 REVIEWERS = {"hzh137940556"}
 
 
-# 保持渠道、Tag、分支和 Maven 坐标的一致映射。
+# 保持渠道、Tag、分支、审批环境和 Maven 坐标的一致映射。
 @dataclass(frozen=True)
 class Release:
     channel: str
@@ -37,6 +36,16 @@ class Release:
     @property
     def branch(self) -> str:
         return "develop" if self.channel == "dev" else "main"
+
+    # 分离审批弹窗中的测试与正式发布，不自动创建或回退审批环境。
+    @property
+    def environment(self) -> str:
+        return f"android-sdk-{self.channel}"
+
+    # 对应 GitHub Environment 的 Tag 通配规则，正式规则不包含 dev 标签。
+    @property
+    def tag_pattern(self) -> str:
+        return "android-sdk-dev-*" if self.channel == "dev" else "android-sdk-[0-9]*"
 
     # 为两个渠道分配不同的 Maven 包名。
     @property
@@ -127,8 +136,8 @@ def github_json(repository: str, path: str) -> dict:
     return data
 
 
-# 要求唯一指定审批人、允许自审、禁止管理员跳过，并且仅开放版本 Tag。
-def validate_environment(environment: dict, policies: dict) -> None:
+# 校验当前渠道的唯一审批人、自审、管理员保护和独立 Tag 白名单。
+def validate_environment(release: Release, environment: dict, policies: dict) -> None:
     rules = environment.get("protection_rules", [])
     reviewers_rule = next((rule for rule in rules if rule.get("type") == "required_reviewers"), {})
     reviewers = {
@@ -137,9 +146,9 @@ def validate_environment(environment: dict, policies: dict) -> None:
         if item.get("type") == "User"
     }
     if reviewers != REVIEWERS or reviewers_rule.get("prevent_self_review") is not False:
-        raise ValueError("发布环境必须仅配置 hzh137940556 为审批人，并允许自己批准")
+        raise ValueError(f"发布环境 {release.environment} 必须仅配置 hzh137940556 为审批人，并允许自己批准")
     if environment.get("can_admins_bypass") is not False:
-        raise ValueError("发布环境必须关闭管理员跳过审批")
+        raise ValueError(f"发布环境 {release.environment} 必须关闭管理员跳过审批")
     policy = environment.get("deployment_branch_policy") or {}
     branches = policies.get("branch_policies", [])
     if (
@@ -147,15 +156,16 @@ def validate_environment(environment: dict, policies: dict) -> None:
         or policy.get("protected_branches") is not False
         or len(branches) != 1
         or branches[0].get("type") != "tag"
-        or branches[0].get("name") != "android-sdk-*"
+        or branches[0].get("name") != release.tag_pattern
     ):
-        raise ValueError("发布环境必须只允许类型为 Tag 的 android-sdk-* 规则")
+        raise ValueError(f"发布环境 {release.environment} 必须只允许类型为 Tag 的 {release.tag_pattern} 规则")
 
 
-# 在进入审批 Job 之前确认真实门禁存在，防止自动创建无保护环境。
-def check_environment(repository: str) -> None:
-    path = f"environments/{ENVIRONMENT}"
+# 审批前后读取当前渠道的真实门禁，环境缺失时停止，不允许自动创建无保护环境。
+def check_environment(release: Release, repository: str) -> None:
+    path = f"environments/{release.environment}"
     validate_environment(
+        release,
         github_json(repository, path),
         github_json(repository, f"{path}/deployment-branch-policies"),
     )
@@ -209,12 +219,13 @@ def publish(release: Release) -> None:
     git("push", "origin", f"refs/tags/{release.tag}")
 
 
-# 向 CI 输出已验证的发布字段，并在审批摘要标题中突出渠道和版本。
+# 向 CI 输出已验证的发布字段和审批环境，并在摘要标题中突出渠道和版本。
 def report(release: Release, sha: str = "", output: Path | None = None) -> None:
     fields = {
         "version": release.version, "channel": release.channel, "branch": release.branch,
         "artifact_id": release.artifact_id, "tag": release.tag,
         "coordinate": release.coordinate, "sha": sha,
+        "environment": release.environment,
     }
     print(json.dumps(fields, ensure_ascii=False))
     if output:
@@ -247,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         release = parse_tag(args.tag) if args.command == "verify-tag" else Release(args.channel, args.version)
         if args.command == "verify-tag":
             sha = verify_tag(release, args.expected_sha)
-            check_environment(args.repository)
+            check_environment(release, args.repository)
             report(release, sha, args.github_output)
         elif args.command == "publish":
             publish(release)

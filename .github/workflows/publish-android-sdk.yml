@@ -33,6 +33,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       channel: ${{ steps.release.outputs.channel }}
+      environment: ${{ steps.release.outputs.environment }}
       coordinate: ${{ steps.release.outputs.coordinate }}
       sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
@@ -80,7 +81,7 @@ jobs:
         run: make verify VERSION="$SDK_VERSION" SDK_CHANNEL="$SDK_CHANNEL"
 
   publish:
-    # 审批前即可看到已校验的渠道和版本，Environment 仍共用同一套门禁。
+    # 审批前显示已校验的渠道和版本，并进入该渠道已通过配置校验的环境。
     name: >-
       ${{ needs.verify.outputs.channel
           && format('Publish Android SDK [{0}] — {1}', needs.verify.outputs.channel, needs.verify.outputs.version)
@@ -89,7 +90,8 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-sdk-')
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: android-sdk-release
+    environment:
+      name: ${{ needs.verify.outputs.environment }}
     permissions:
       contents: read
       actions: read

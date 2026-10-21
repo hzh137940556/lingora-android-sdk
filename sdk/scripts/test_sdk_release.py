@@ -16,16 +16,20 @@ import sdk_release as sdk
 
 # 覆盖标签与发布坐标的双向映射及不合法输入。
 class ReleaseTests(unittest.TestCase):
-    # 测试包和正式包允许使用相同版本，但必须落在不同坐标。
+    # 两渠道分别绑定来源、坐标和审批环境，不从实现常量生成预期规则。
     def test_channels_have_distinct_coordinates(self) -> None:
-        for channel, branch, artifact, tag in (
-            ("dev", "develop", "lingora-android-dev", "android-sdk-dev-0.1.0"),
-            ("release", "main", "lingora-android", "android-sdk-0.1.0"),
+        for channel, branch, artifact, tag, environment, pattern in (
+            ("dev", "develop", "lingora-android-dev", "android-sdk-dev-0.1.0",
+             "android-sdk-dev", "android-sdk-dev-*"),
+            ("release", "main", "lingora-android", "android-sdk-0.1.0",
+             "android-sdk-release", "android-sdk-[0-9]*"),
         ):
             with self.subTest(channel=channel):
                 release = sdk.Release(channel, "0.1.0")
                 self.assertEqual((release.branch, release.artifact_id, release.tag), (branch, artifact, tag))
                 self.assertEqual(release.coordinate, f"io.lingora:{artifact}:0.1.0")
+                self.assertEqual(release.environment, environment)
+                self.assertEqual(release.tag_pattern, pattern)
                 self.assertEqual(sdk.parse_tag(tag), release)
 
     # 禁止旧标签格式、命令字符、前导零以及未约定的版本后缀。
@@ -57,6 +61,7 @@ class ReleaseTests(unittest.TestCase):
                     with contextlib.redirect_stdout(io.StringIO()):
                         sdk.report(release, "abc123", output)
                 self.assertIn("sha=abc123\n", output.read_text())
+                self.assertIn(f"environment=android-sdk-{channel}\n", output.read_text())
                 self.assertIn(release.coordinate, summary.read_text())
                 self.assertIn(f"### SDK 发布信息 [{channel}] — 0.1.0", summary.read_text())
 
@@ -162,6 +167,7 @@ class SourceTests(unittest.TestCase):
 class EnvironmentTests(unittest.TestCase):
     # 构造当前唯一审批人和 Tag 白名单，不从实现常量生成预期配置。
     def setUp(self) -> None:
+        self.release = sdk.Release("dev", "0.1.0")
         self.environment = {
             "can_admins_bypass": False,
             "protection_rules": [{
@@ -170,11 +176,31 @@ class EnvironmentTests(unittest.TestCase):
             }],
             "deployment_branch_policy": {"custom_branch_policies": True, "protected_branches": False},
         }
-        self.policies = {"branch_policies": [{"type": "tag", "name": "android-sdk-*"}]}
+        self.policies = {"branch_policies": [{"type": "tag", "name": "android-sdk-dev-*"}]}
 
     # 正确配置允许进入等待审批的发布 Job。
     def test_valid_environment(self) -> None:
-        sdk.validate_environment(self.environment, self.policies)
+        for channel, pattern in (("dev", "android-sdk-dev-*"), ("release", "android-sdk-[0-9]*")):
+            with self.subTest(channel=channel):
+                policies = {"branch_policies": [{"type": "tag", "name": pattern}]}
+                sdk.validate_environment(sdk.Release(channel, "0.1.0"), self.environment, policies)
+
+    # 必须读取当前渠道的实际环境和策略，不回退到另一渠道的审批环境。
+    def test_check_environment_uses_channel(self) -> None:
+        repository = "hzh137940556/lingora-android-sdk"
+        for channel, environment, pattern in (
+            ("dev", "android-sdk-dev", "android-sdk-dev-*"),
+            ("release", "android-sdk-release", "android-sdk-[0-9]*"),
+        ):
+            policies = {"branch_policies": [{"type": "tag", "name": pattern}]}
+            with self.subTest(channel=channel), patch.object(
+                sdk, "github_json", side_effect=[self.environment, policies],
+            ) as fetch:
+                sdk.check_environment(sdk.Release(channel, "0.1.0"), repository)
+                self.assertEqual([call.args for call in fetch.call_args_list], [
+                    (repository, f"environments/{environment}"),
+                    (repository, f"environments/{environment}/deployment-branch-policies"),
+                ])
 
     # 旧账号、替代账号以及额外审批人都不能改变已确认的唯一审批名单。
     def test_other_reviewers_are_rejected(self) -> None:
@@ -186,13 +212,13 @@ class EnvironmentTests(unittest.TestCase):
                 {"type": "User", "reviewer": {"login": name}} for name in names
             ]
             with self.subTest(names=names), self.assertRaises(ValueError):
-                sdk.validate_environment(environment, self.policies)
+                sdk.validate_environment(self.release, environment, self.policies)
 
     # 自动创建的无保护环境不满足发版条件。
     def test_missing_reviewers_is_rejected(self) -> None:
         for environment in ({}, {"protection_rules": []}):
             with self.subTest(environment=environment), self.assertRaises(ValueError):
-                sdk.validate_environment(environment, self.policies)
+                sdk.validate_environment(self.release, environment, self.policies)
 
     # 少配审批人、禁止自审或允许管理员绕过都不是确认的配置。
     def test_incorrect_approval_policy_is_rejected(self) -> None:
@@ -205,41 +231,82 @@ class EnvironmentTests(unittest.TestCase):
             else:
                 environment["can_admins_bypass"] = True
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                sdk.validate_environment(environment, self.policies)
+                sdk.validate_environment(self.release, environment, self.policies)
 
-    # 分支白名单不能冒充同名 Tag 白名单，额外放行规则也必须拒绝。
+    # 广泛规则、跨渠道规则、同名 Branch 和额外放行规则均不能通过审批校验。
     def test_only_release_tags_are_allowed(self) -> None:
-        for branches in (
-            [], [{"type": "branch", "name": "android-sdk-*"}],
-            [{"type": "tag", "name": "*"}],
-            self.policies["branch_policies"] + [{"type": "branch", "name": "main"}],
+        for channel, pattern, other in (
+            ("dev", "android-sdk-dev-*", "android-sdk-[0-9]*"),
+            ("release", "android-sdk-[0-9]*", "android-sdk-dev-*"),
         ):
-            with self.subTest(branches=branches), self.assertRaises(ValueError):
-                sdk.validate_environment(self.environment, {"branch_policies": branches})
+            for branches in (
+                [], [{"type": "branch", "name": pattern}],
+                [{"type": "tag", "name": "*"}],
+                [{"type": "tag", "name": "android-sdk-*"}],
+                [{"type": "tag", "name": other}],
+                [{"type": "tag", "name": pattern}, {"type": "branch", "name": "main"}],
+            ):
+                with self.subTest(channel=channel, branches=branches), self.assertRaises(ValueError):
+                    sdk.validate_environment(
+                        sdk.Release(channel, "0.1.0"), self.environment, {"branch_policies": branches},
+                    )
 
     # GitHub 返回环境不存在或无权限时，不能继续等待一个无保护环境。
     def test_missing_environment_or_api_failure_stops_release(self) -> None:
         with patch.dict(sdk.os.environ, {"GH_TOKEN": "test-only-token"}):
-            for code in (401, 403, 404, 500):
-                error = HTTPError("https://api.github.com", code, "test", {}, None)
-                with self.subTest(code=code), patch.object(sdk, "urlopen", side_effect=error):
-                    with self.assertRaisesRegex(ValueError, str(code)):
-                        sdk.check_environment("hzh137940556/lingora-android-sdk")
+            for channel in ("dev", "release"):
+                for code in (401, 403, 404, 500):
+                    error = HTTPError("https://api.github.com", code, "test", {}, None)
+                    with self.subTest(channel=channel, code=code), patch.object(sdk, "urlopen", side_effect=error):
+                        with self.assertRaisesRegex(ValueError, str(code)):
+                            sdk.check_environment(sdk.Release(channel, "0.1.0"), "hzh137940556/lingora-android-sdk")
 
     # 缺少审批时不能导出供下游发布使用的版本与提交信息。
     def test_cli_does_not_export_release_without_approval_configuration(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "outputs"
-            with patch.object(sdk, "verify_tag", return_value="abc123"):
-                with patch.object(sdk, "check_environment", side_effect=ValueError("missing environment")):
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        result = sdk.main([
-                            "verify-tag", "--tag", "android-sdk-dev-0.1.0",
-                            "--repository", "hzh137940556/lingora-android-sdk",
-                            "--github-output", str(output),
-                        ])
-            self.assertEqual(result, 1)
-            self.assertFalse(output.exists())
+        repository = "hzh137940556/lingora-android-sdk"
+        for channel in ("dev", "release"):
+            with self.subTest(channel=channel), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "outputs"
+                release = sdk.Release(channel, "0.1.0")
+                with patch.object(sdk, "verify_tag", return_value="abc123"):
+                    with patch.object(sdk, "check_environment", side_effect=ValueError("missing environment")) as check:
+                        with contextlib.redirect_stderr(io.StringIO()):
+                            result = sdk.main([
+                                "verify-tag", "--tag", release.tag, "--repository", repository,
+                                "--github-output", str(output),
+                            ])
+                self.assertEqual(result, 1)
+                self.assertFalse(output.exists())
+                check.assert_called_once_with(release, repository)
+
+    # 审批前后都校验当前渠道，只有配置通过后才导出供工作流选择的环境。
+    def test_cli_exports_validated_environment(self) -> None:
+        repository = "hzh137940556/lingora-android-sdk"
+        for channel, environment, pattern in (
+            ("dev", "android-sdk-dev", "android-sdk-dev-*"),
+            ("release", "android-sdk-release", "android-sdk-[0-9]*"),
+        ):
+            for expected_sha in (None, "abc123"):
+                with self.subTest(channel=channel, expected_sha=expected_sha), tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory) / "outputs"
+                    summary = Path(directory) / "summary"
+                    release = sdk.Release(channel, "0.1.0")
+                    policies = {"branch_policies": [{"type": "tag", "name": pattern}]}
+                    args = ["verify-tag", "--tag", release.tag, "--repository", repository, "--github-output", str(output)]
+                    if expected_sha is not None:
+                        args.extend(["--expected-sha", expected_sha])
+                    with patch.dict(sdk.os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
+                        with patch.object(sdk, "verify_tag", return_value="abc123") as verify:
+                            with patch.object(sdk, "github_json", side_effect=[self.environment, policies]) as fetch:
+                                with contextlib.redirect_stdout(io.StringIO()):
+                                    self.assertEqual(sdk.main(args), 0)
+                    verify.assert_called_once_with(release, expected_sha)
+                    self.assertEqual([call.args for call in fetch.call_args_list], [
+                        (repository, f"environments/{environment}"),
+                        (repository, f"environments/{environment}/deployment-branch-policies"),
+                    ])
+                    self.assertIn(f"environment={environment}\n", output.read_text())
+                    self.assertIn(environment, summary.read_text())
 
 
 # 模拟 GitHub Packages，只对明确不存在的坐标开放首次上传。
