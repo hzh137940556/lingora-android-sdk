@@ -46,16 +46,19 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sdk.Release("production", "0.1.0")
 
-    # CI 输出只能来自已校验字段，并保留构建 SHA。
+    # 审批前摘要显著标识两个渠道与版本，CI 输出仍保留坐标和构建 SHA。
     def test_report_records_coordinate_and_sha(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "outputs"
-            summary = Path(directory) / "summary"
-            with patch.dict(sdk.os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    sdk.report(sdk.Release("dev", "0.1.0"), "abc123", output)
-            self.assertIn("sha=abc123\n", output.read_text())
-            self.assertIn("io.lingora:lingora-android-dev:0.1.0", summary.read_text())
+        for channel in ("dev", "release"):
+            with self.subTest(channel=channel), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "outputs"
+                summary = Path(directory) / "summary"
+                release = sdk.Release(channel, "0.1.0")
+                with patch.dict(sdk.os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        sdk.report(release, "abc123", output)
+                self.assertIn("sha=abc123\n", output.read_text())
+                self.assertIn(release.coordinate, summary.read_text())
+                self.assertIn(f"### SDK 发布信息 [{channel}] — 0.1.0", summary.read_text())
 
 
 # 在隔离文件中验证 CI 切换与 Demo 的手动依赖声明保持同一入口。

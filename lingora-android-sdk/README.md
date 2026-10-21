@@ -232,8 +232,16 @@ URL、namespace 和语言应与服务端 Delivery 一致；未配置 URL 时验�
    `implementation` 改为该坐标，从 GitHub Packages 下载并构建，验证已上传的二进制可被消费。
    只有此 Job 有 `packages: write` 权限；校验 Job 仅有包读取权限，以支持 Demo 选择远端依赖。
 
+发布运行标题包含渠道与 Tag，例如 `Publish Android SDK [dev] — android-sdk-dev-0.1.3`；
+等待审批的 Job 显示已校验的渠道与版本，例如 `Publish Android SDK [dev] — 0.1.3`，
+正式包对应 `[release]`。审批前 Summary 标题也突出渠道与版本。
+`android-sdk-release` 只是两个渠道共用的审批环境名，不能用它判断正在发布测试包还是正式包。
+
 在 Actions 对应运行页核对 Summary 中的完整 Maven 坐标、Tag 与 SHA，然后点击
 `Review deployments` → `Approve and deploy`；拒绝则停止发布。批准后始终构建已校验的同一 SHA。
+`publish` 的 `Publish approved package` 日志会先显示 Maven 上传地址与依赖坐标；上传成功后，
+Actions Summary 会显示“SDK 包已上传”，包含可点击的仓库地址、包列表、渠道、Tag、SHA 和 Gradle 依赖声明。
+上传失败不会生成成功摘要；后续 Demo 消费验收失败也不会撤销已经上传的包。
 Tag 提交必须已经存在于对应的远端分支历史中；未合并的 PR 提交不能直接发包。
 正式包和测试包包含同样的类，消费项目必须二选一。仓库内 Demo 默认依赖本地 module，
 也支持在同一处依赖声明切换为远端包。

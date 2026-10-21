@@ -1,4 +1,9 @@
 name: Android SDK CI and Release
+# 运行列表先按 Tag 显示渠道；真正发布仍以 verify-tag 校验结果为准。
+run-name: >-
+  ${{ startsWith(github.ref, 'refs/tags/android-sdk-')
+      && format('Publish Android SDK [{0}] — {1}', startsWith(github.ref, 'refs/tags/android-sdk-dev-') && 'dev' || 'release', github.ref_name)
+      || format('Test and build SDK and Demo — {0}', github.head_ref || github.ref_name) }}
 
 on:
   pull_request:
@@ -27,6 +32,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       channel: ${{ steps.release.outputs.channel }}
+      coordinate: ${{ steps.release.outputs.coordinate }}
       sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
 
@@ -72,7 +78,11 @@ jobs:
         run: make verify VERSION="$SDK_VERSION" SDK_CHANNEL="$SDK_CHANNEL"
 
   publish:
-    name: Publish Android SDK
+    # 审批前即可看到已校验的渠道和版本，Environment 仍共用同一套门禁。
+    name: >-
+      ${{ needs.verify.outputs.channel
+          && format('Publish Android SDK [{0}] — {1}', needs.verify.outputs.channel, needs.verify.outputs.version)
+          || 'Publish Android SDK (tag only)' }}
     needs: verify
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-sdk-')
     runs-on: ubuntu-latest
@@ -134,11 +144,24 @@ jobs:
       - name: Publish approved package
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: >-
-          ./gradlew
-          :lingora-android-sdk:publishReleasePublicationToGitHubPackagesRepository
-          -PVERSION_NAME="$SDK_VERSION" -PSDK_CHANNEL="$SDK_CHANNEL"
-          --no-daemon
+          SDK_COORDINATE: ${{ needs.verify.outputs.coordinate }}
+          MAVEN_REPOSITORY_URL: https://maven.pkg.github.com/hzh137940556/lingora-android-sdk
+        run: |
+          printf 'Publishing %s to %s\n' "$SDK_COORDINATE" "$MAVEN_REPOSITORY_URL"
+          ./gradlew \
+            :lingora-android-sdk:publishReleasePublicationToGitHubPackagesRepository \
+            -PVERSION_NAME="$SDK_VERSION" -PSDK_CHANNEL="$SDK_CHANNEL" \
+            --no-daemon
+          # 上传成功后再记录结果；后续 Demo 验收失败不代表包未上传。
+          printf '::notice title=SDK uploaded::%s -> %s\n' "$SDK_COORDINATE" "$MAVEN_REPOSITORY_URL"
+          {
+            printf '## ✅ SDK 包已上传\n\n'
+            printf -- '- Maven 仓库：[%s](%s)\n' "$MAVEN_REPOSITORY_URL" "$MAVEN_REPOSITORY_URL"
+            printf -- '- 包列表：[GitHub Packages](https://github.com/hzh137940556?tab=packages&repo_name=lingora-android-sdk)\n'
+            printf -- '- 依赖坐标：`%s`\n' "$SDK_COORDINATE"
+            printf -- '- 渠道：`%s`\n- Tag：`%s`\n- Commit SHA：`%s`\n' "$SDK_CHANNEL" "$TAG_NAME" "$RELEASE_SHA"
+            printf '\n```kotlin\nimplementation("%s")\n```\n' "$SDK_COORDINATE"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build Demo against the downloaded package
         env:
