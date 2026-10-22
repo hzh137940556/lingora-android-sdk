@@ -1,3 +1,4 @@
+// 验证 Android SDK 的网络、缓存、重试与 namespace 隔离行为。
 package io.lingora.android
 
 import android.content.Context
@@ -29,6 +30,8 @@ import kotlin.concurrent.thread
 class LingoraRequestsTest {
     private val context = InstrumentationRegistry.getInstrumentation().context
     private val remoteValues = listOf("Remote text", "2 remote items", "Remote Monday|Remote Tuesday")
+    private val commonRemoteValues =
+        listOf("Common text", "2 common items", "Common Monday|Common Tuesday")
     private val fallbackValues = listOf("APK text", "2 APK items", "APK Monday|APK Tuesday")
 
     @Test
@@ -192,30 +195,175 @@ class LingoraRequestsTest {
         }
     }
 
-    private fun sdk(server: HttpServer, version: Long = System.nanoTime()): Lingora {
+    @Test
+    fun namespacesKeepSameRemoteKeyAndLoadIndependently(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.translationResponse = { request, _ ->
+                when (request.path) {
+                    "/app/en.json" -> Reply(body = """{"shared_key":"App remote"}""")
+                    "/common/en.json" -> Reply(body = """{"shared_key":"Common remote"}""")
+                    else -> Reply(404)
+                }
+            }
+            val sdk = sdk(
+                server,
+                namespaces = LingoraNamespaces(additionalNamespaces = setOf("common")),
+            )
+
+            sdk.preload()
+
+            assertEquals("App remote", sdk.t("shared_key"))
+            assertEquals("Common remote", sdk.t("shared_key", namespace = "common"))
+            assertEquals(1, server.translationRequests.count { it.path == "/app/en.json" })
+            assertEquals(1, server.translationRequests.count { it.path == "/common/en.json" })
+        }
+    }
+
+    @Test
+    fun oneNamespaceFailureKeepsOtherNamespaceAndRetriesOnlyThatDocument(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.translationResponse = { request, _ ->
+                if (request.path == "/common/en.json") Reply(503) else Reply()
+            }
+            val sdk = sdk(
+                server,
+                namespaces = LingoraNamespaces(additionalNamespaces = setOf("common")),
+            )
+
+            sdk.preload()
+
+            assertEquals("Remote text", sdk.t("audit_text"))
+            assertEquals(null, sdk.t("audit_text", namespace = "common"))
+            assertTrue(sdk.loadState.value is LingoraLoadState.Ready)
+            assertEquals(1, server.translationRequests.count { it.path == "/app/en.json" })
+            assertEquals(2, server.translationRequests.count { it.path == "/common/en.json" })
+        }
+    }
+
+    @Test
+    fun namespaceDiskCachesDoNotOverwriteEachOther(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val version = System.nanoTime()
+            val namespaces = LingoraNamespaces(additionalNamespaces = setOf("common"))
+            server.translationResponse = { request, _ ->
+                when (request.path) {
+                    "/app/en.json" -> Reply(body = """{"shared_key":"Cached app"}""")
+                    "/common/en.json" -> Reply(body = """{"shared_key":"Cached common"}""")
+                    else -> Reply(404)
+                }
+            }
+            sdk(server, version, namespaces).preload()
+            server.translationResponse = { _, _ -> Reply(503) }
+
+            val cached = sdk(server, version, namespaces)
+            cached.preload()
+
+            assertEquals("Cached app", cached.t("shared_key"))
+            assertEquals("Cached common", cached.t("shared_key", namespace = "common"))
+            assertEquals(LingoraLoadState.Ready("en", LingoraSource.CACHE), cached.loadState.value)
+        }
+    }
+
+    @Test
+    fun namespaceResourcePluralArrayAndFlowOverloadsUseRequestedDocument(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.translationResponse = { request, _ ->
+                if (request.path == "/common/en.json") {
+                    Reply(body = COMMON_TRANSLATIONS)
+                } else {
+                    Reply()
+                }
+            }
+            val sdk = sdk(
+                server,
+                namespaces = LingoraNamespaces(additionalNamespaces = setOf("common")),
+            )
+            sdk.preload()
+            fun resource(name: String, type: String): Int =
+                context.resources.getIdentifier(name, type, context.packageName)
+
+            assertEquals(
+                "Common text",
+                sdk.t(context, resource("audit_text", "string"), namespace = "common"),
+            )
+            assertEquals(
+                "2 common items",
+                sdk.tPlural(
+                    context.resources,
+                    resource("audit_quantity", "plurals"),
+                    2,
+                    namespace = "common",
+                ),
+            )
+            assertEquals(
+                listOf("Common Monday", "Common Tuesday"),
+                sdk.tArray(
+                    context.resources,
+                    resource("audit_days", "array"),
+                    namespace = "common",
+                ),
+            )
+            withCollectors(sdk, namespace = "common") { values ->
+                awaitValues(values, commonRemoteValues)
+            }
+        }
+    }
+
+    private fun sdk(
+        server: HttpServer,
+        version: Long = System.nanoTime(),
+        namespaces: LingoraNamespaces = LingoraNamespaces(),
+    ): Lingora {
         // A separate instance per test; do not alter the process-wide application singleton.
-        val constructor = Lingora::class.java.getDeclaredConstructor(Context::class.java, LingoraConfig::class.java)
+        val constructor = Lingora::class.java.getDeclaredConstructor(
+            Context::class.java,
+            LingoraConfig::class.java,
+            LingoraNamespaces::class.java,
+        )
         constructor.isAccessible = true
-        return constructor.newInstance(context, LingoraConfig(
-            contentDeliveryUrl = server.url,
-            appVersionCode = version,
-            defaultLanguage = "en",
-            initialLocale = Locale.ENGLISH,
-            connectTimeoutMillis = 1_000,
-            readTimeoutMillis = 1_000,
-        ))
+        return constructor.newInstance(
+            context,
+            LingoraConfig(
+                contentDeliveryUrl = server.url,
+                appVersionCode = version,
+                defaultLanguage = "en",
+                initialLocale = Locale.ENGLISH,
+                connectTimeoutMillis = 1_000,
+                readTimeoutMillis = 1_000,
+            ),
+            namespaces,
+        )
     }
 
     private suspend fun withCollectors(
         sdk: Lingora,
+        namespace: String? = null,
         check: suspend CoroutineScope.(List<AtomicReference<String>>) -> Unit,
     ) = coroutineScope {
         fun resource(name: String, type: String): Int = context.resources.getIdentifier(name, type, context.packageName)
-        val flows: List<Flow<String>> = listOf(
-            sdk.tFlow(context, resource("audit_text", "string")),
-            sdk.tPluralFlow(context.resources, resource("audit_quantity", "plurals"), 2),
-            sdk.tArrayFlow(context.resources, resource("audit_days", "array")).map { it.joinToString("|") },
-        )
+        val flows: List<Flow<String>> = if (namespace == null) {
+            listOf(
+                sdk.tFlow(context, resource("audit_text", "string")),
+                sdk.tPluralFlow(context.resources, resource("audit_quantity", "plurals"), 2),
+                sdk.tArrayFlow(context.resources, resource("audit_days", "array"))
+                    .map { it.joinToString("|") },
+            )
+        } else {
+            listOf(
+                sdk.tFlow(context, resource("audit_text", "string"), namespace = namespace),
+                sdk.tPluralFlow(
+                    context.resources,
+                    resource("audit_quantity", "plurals"),
+                    2,
+                    namespace = namespace,
+                ),
+                sdk.tArrayFlow(
+                    context.resources,
+                    resource("audit_days", "array"),
+                    namespace = namespace,
+                ).map { it.joinToString("|") },
+            )
+        }
         val values = List(8) { AtomicReference("") }
         val jobs = values.mapIndexed { index, value -> launch { flows[index % flows.size].collect(value::set) } }
         try {
@@ -275,5 +423,6 @@ class LingoraRequestsTest {
 
     private companion object {
         const val TRANSLATIONS = """{"audit_text":"Remote text","audit_quantity":{"one":"%d remote item","other":"%d remote items"},"audit_days":["Remote Monday","Remote Tuesday"]}"""
+        const val COMMON_TRANSLATIONS = """{"audit_text":"Common text","audit_quantity":{"one":"%d common item","other":"%d common items"},"audit_days":["Common Monday","Common Tuesday"]}"""
     }
 }

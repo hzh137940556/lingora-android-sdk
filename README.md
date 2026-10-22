@@ -9,7 +9,7 @@ sdk/                     SDK 的 settings、wrapper、依赖、源码、测试�
   scripts/               发布门禁与 Maven 产物校验
 demo/                    Demo 的 settings、wrapper、App、CLI 配置与生成资源
   app/                   :app，只消费 SDK 的公共 API
-  scripts/               已安装 CLI 的编排入口和示例配置
+  ci/                    固定版本 CLI 的无 Secret 配置
 Makefile                 仅转发常用命令
 ```
 
@@ -48,7 +48,7 @@ cd demo
 
 ## 从旧布局迁移
 
-源文件只调整目录，SDK 公共 API 与 Kotlin package 不变。个人配置需要手动迁移，避免覆盖已有值：
+旧 SDK 公共 API 与 Kotlin package 保持兼容；多 namespace 通过新重载显式启用。个人配置需要手动迁移，避免覆盖已有值：
 
 1. Android Studio 重新打开 `demo/` 或 `sdk/`，旧根目录 Gradle 配置不再使用。
 2. 原根目录 `.lingorarc` 放到 `demo/.lingorarc`，检查资源路径；原 `scripts/` 配置放到

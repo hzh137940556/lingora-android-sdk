@@ -81,6 +81,11 @@ private fun TranslationTestPage(
     val welcome = lingoraStringResource(lingora, R.string.welcome)
     val welcomeName = lingoraStringResource(lingora, R.string.welcome_name, "Android")
     val localNotice = lingoraStringResource(lingora, R.string.local_notice)
+    val commonNotice = lingoraStringResource(
+        lingora,
+        R.string.common_notice,
+        namespace = "common",
+    )
     val quantity = lingoraPluralStringResource(lingora, R.plurals.items_count, 3)
     val weekdays = lingoraStringArrayResource(lingora, R.array.weekdays)
     val months = lingoraStringArrayResource(lingora, R.array.en_month)
@@ -139,12 +144,15 @@ private fun TranslationTestPage(
             }
         }
         Text(lingoraStringResource(lingora, R.string.tap_key_hint))
+        Text(lingoraStringResource(lingora, R.string.namespace_app))
         TranslationButton("welcome", welcome) { selectedTranslation = it }
         TranslationButton("welcome_name", welcomeName) { selectedTranslation = it }
         TranslationButton("local_notice", localNotice) { selectedTranslation = it }
         TranslationButton("items_count", quantity) { selectedTranslation = it }
         TranslationButton("weekdays", weekdays.joinToString()) { selectedTranslation = it }
         TranslationButton("en_month", months.joinToString()) { selectedTranslation = it }
+        Text(lingoraStringResource(lingora, R.string.namespace_common))
+        TranslationButton("common_notice", commonNotice) { selectedTranslation = it }
     }
 
     selectedTranslation?.let { translation ->
@@ -220,9 +228,15 @@ private fun lingoraStringResource(
     lingora: Lingora,
     @StringRes id: Int,
     vararg formatArgs: Any,
+    namespace: String = "app",
 ): String {
     val context = lingoraContext(lingora)
-    return lingora.tFlow(context, id, *formatArgs).collectAsState(
+    return lingora.tFlow(
+        context,
+        id,
+        *formatArgs,
+        namespace = namespace,
+    ).collectAsState(
         initial = context.getString(id, *formatArgs),
     ).value
 }

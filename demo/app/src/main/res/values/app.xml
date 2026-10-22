@@ -1,7 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App namespace 的基础语言资源，也是远端不可用时的 APK fallback。 -->
 <resources>
     <string name="app_name">Lingora Android Demo</string>
     <string name="demo_title">Lingora dynamic text test</string>
-    <string name="demo_description">Publish new values in Lingora, refresh this page, then tap a key to inspect the current value.</string>
+    <string name="demo_description">Publish app and common values in Lingora, refresh this page, then tap a key to inspect the current value.</string>
     <string name="welcome">Welcome from the APK fallback local</string>
     <string name="welcome_name">Hello, %1$s!</string>
     <string name="current_locale">Current locale: %1$s</string>
@@ -13,6 +15,8 @@
     <string name="source_cache">Loaded from disk cache</string>
     <string name="loading">Loading Content Delivery…</string>
     <string name="local_notice">Local notice</string>
+    <string name="namespace_app">app namespace</string>
+    <string name="namespace_common">common namespace</string>
     <plurals name="items_count">
         <item quantity="one">%1$d item</item>
         <item quantity="other">%1$d items</item>
@@ -20,5 +24,19 @@
     <string-array name="weekdays">
         <item>Monday</item>
         <item>Tuesday</item>
+    </string-array>
+    <string-array name="en_month">
+        <item>January</item>
+        <item>February</item>
+        <item>March</item>
+        <item>April</item>
+        <item>May</item>
+        <item>June</item>
+        <item>July</item>
+        <item>August</item>
+        <item>September</item>
+        <item>October</item>
+        <item>November</item>
+        <item>December</item>
     </string-array>
 </resources>

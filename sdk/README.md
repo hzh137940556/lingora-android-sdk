@@ -69,6 +69,10 @@ class App : Application() {
                 path = { languageTag -> "app/$languageTag.json" },
                 manifestPath = "manifest.json",
             ),
+            namespaces = LingoraNamespaces(
+                defaultNamespace = "app",
+                additionalNamespaces = setOf("common"),
+            ),
         )
     }
 }
@@ -89,6 +93,9 @@ manifest.json
 app/en-US.json
 app/ja.json
 app/zh-CN.json
+common/en-US.json
+common/ja.json
+common/zh-CN.json
 ```
 
 `manifest.json` 决定可用语言；不存在完全匹配的语言时，SDK 按语言回退规则选择，并最终尝试
@@ -108,9 +115,17 @@ lifecycleScope.launch {
 val title = lingora.t(this, R.string.welcome)
 val count = lingora.tPlural(resources, R.plurals.items_count, quantity)
 val weekdays = lingora.tArray(resources, R.array.weekdays)
+
+val sharedNotice = lingora.t(
+    this,
+    R.string.common_notice,
+    namespace = "common",
+)
 ```
 
-远端 JSON 的 Key 与 Android 资源名一致，例如 `welcome` 对应 `R.string.welcome`。调用时始终
+远端 JSON 的 Key 与 Android 资源名一致，例如 `welcome` 对应 `R.string.welcome`。不同 namespace
+可以包含同名远端 Key；Android APK 的单一资源表不能隔离同名资源，因此本地 fallback 仍应使用
+不重复的资源名。调用时始终
 保留本地 `strings.xml`、`plurals` 和 `string-array`，它们是远端不可用时的 fallback。
 
 ### Compose 或其他响应式页面
@@ -122,6 +137,10 @@ val title by Lingora.instance
     .collectAsState(initial = context.getString(R.string.welcome))
 
 Text(title)
+
+val sharedNotice by Lingora.instance
+    .tFlow(context, R.string.common_notice, namespace = "common")
+    .collectAsState(initial = context.getString(R.string.common_notice))
 ```
 
 复数和数组分别使用 `tPluralFlow`、`tArrayFlow`。Flow 会先返回 APK 文案，加载完成后再发出
@@ -138,8 +157,8 @@ lifecycleScope.launch {
 ```
 
 - `setLocale()` 切换当前语言，相关 Flow 会重新加载。
-- `preload()` 按当前语言预加载。
-- `refresh()` 跳过当前内存命中和失败冷却，主动检查最新内容。
+- `preload()` 按当前语言预加载默认和全部附加 namespace。
+- `refresh()` 跳过当前内存命中和失败冷却，主动检查全部 namespace 的最新内容。
 - `availableLocaleTags` 提供 manifest 中的语言列表。
 - `loadState` 提供 `Idle`、`Loading`、`Ready` 和 `UsingApkFallback` 状态。
 
@@ -147,6 +166,7 @@ lifecycleScope.launch {
 
 - URL 为空、语言未发布、网络失败或响应无效时，读取 API 返回 APK 资源。
 - 有有效磁盘缓存时可以离线使用缓存。
+- 内存文档、磁盘缓存和失败冷却均按 `(language, namespace)` 隔离；单个 namespace 失败不会清空其他有效文档。
 - 可重试的网络错误会自动重试一次；`refresh()` 可随时手动重试。
 - 远端数组长度必须与 APK 数组一致，否则使用完整 APK 数组，避免索引错位。
 
