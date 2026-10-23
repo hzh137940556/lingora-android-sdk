@@ -15,7 +15,7 @@
         "namespace": "common"
       }
     ],
-    "forceMode": "NO_FORCE",
+    "forceMode": "KEEP",
     "overrideMode": "RECOMMENDED",
     "errorOnUnresolvedConflict": "auto",
     "overrideKeyDescriptions": false,

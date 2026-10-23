@@ -58,7 +58,7 @@ make cli-pull
 ```
 
 - `push` 分别把 `values/app.xml` 和 `values/common.xml` 上传到对应 namespace。
-- `forceMode=NO_FORCE` 遇到服务端非空值冲突时停止，不静默覆盖。
+- `forceMode=KEEP` 保留服务端已有的非空值，只补充缺失 key 或空值，不删除其他 key。
 - `pull` 只下载 `app`、`common` 中状态为 `TRANSLATED` 或 `REVIEWED` 的非空目标翻译。
 - 输出写入 `generated/lingora/res`；该目录已加入 App 的 main resource source set，不提交 Git。
 

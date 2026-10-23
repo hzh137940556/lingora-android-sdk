@@ -21,4 +21,5 @@ cli-pull: check_cli
 mock_ci: cli-validate cli-push cli-pull
 
 verify:
-	./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+	./gradlew :app:testDebugUnitTest :app:assembleDebug \
+		-PlingoraSdkMode=local --no-daemon
