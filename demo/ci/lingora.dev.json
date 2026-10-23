@@ -2,21 +2,20 @@
   "apiUrl": "https://lingora-dev.fun.brain.ai",
   "projectId": "6acbf9e2-b605-40e4-90b1-066fbb1d4506",
   "branch": "develop",
-  "format": "ANDROID_XML",
   "push": {
     "files": [
       {
-        "path": "../app/src/main/res/values/strings.xml",
+        "path": "../app/src/main/res/values/app.xml",
         "language": "en-US",
         "namespace": "app"
       },
       {
-        "path": "../app/src/main/res/values/arrays.xml",
+        "path": "../app/src/main/res/values/common.xml",
         "language": "en-US",
-        "namespace": "app"
+        "namespace": "common"
       }
     ],
-    "forceMode": "NO_FORCE",
+    "forceMode": "KEEP",
     "overrideMode": "RECOMMENDED",
     "errorOnUnresolvedConflict": "auto",
     "overrideKeyDescriptions": false,
@@ -25,11 +24,12 @@
     "removeOtherKeys": false
   },
   "pull": {
+    "format": "android-xml",
     "path": "../generated/lingora/res",
     "languages": ["ja", "zh-CN"],
-    "namespaces": ["app"],
+    "namespaces": ["app", "common"],
     "states": ["TRANSLATED", "REVIEWED"],
-    "fileStructureTemplate": "values-{androidLanguageTag}/strings.{extension}",
+    "fileStructureTemplate": "values-{androidLanguageTag}/{namespace}.xml",
     "emptyDir": true
   }
 }

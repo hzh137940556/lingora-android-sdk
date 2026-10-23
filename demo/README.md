@@ -43,7 +43,7 @@ CLI 用于把 Android 基础资源上传到 Lingora，再把目标语言下载�
 export LINGORA_API_KEY='<API Key>'
 ```
 
-上传并下载：
+按 `validate -> push -> pull` 上传并下载：
 
 ```bash
 make mock_ci
@@ -52,14 +52,14 @@ make mock_ci
 也可以只执行某一步：
 
 ```bash
-CLI_VERSION="$(tr -d '\r\n' < lingora-cli.version)"
-uvx --from "lingora-cli==$CLI_VERSION" lingora --config ci/lingora.dev.json push
-uvx --from "lingora-cli==$CLI_VERSION" lingora --config ci/lingora.dev.json pull
+make cli-validate
+make cli-push
+make cli-pull
 ```
 
-- `push` 上传 `values/strings.xml` 和 `values/arrays.xml` 中的基础语言。
-- `forceMode=NO_FORCE` 遇到服务端非空值冲突时停止，不静默覆盖。
-- `pull` 只下载配置中状态为 `TRANSLATED` 或 `REVIEWED` 的非空目标翻译。
+- `push` 分别把 `values/app.xml` 和 `values/common.xml` 上传到对应 namespace。
+- `forceMode=KEEP` 保留服务端已有的非空值，只补充缺失 key 或空值，不删除其他 key。
+- `pull` 只下载 `app`、`common` 中状态为 `TRANSLATED` 或 `REVIEWED` 的非空目标翻译。
 - 输出写入 `generated/lingora/res`；该目录已加入 App 的 main resource source set，不提交 Git。
 
 CLI 只负责同步资源，不会自动翻译，也不会在普通 Gradle 构建中自动运行。
@@ -85,6 +85,10 @@ val text by Lingora.instance
     .collectAsState(initial = context.getString(R.string.welcome))
 
 Text(text)
+
+val commonText by Lingora.instance
+    .tFlow(context, R.string.common_notice, namespace = "common")
+    .collectAsState(initial = context.getString(R.string.common_notice))
 ```
 
 切换语言或主动刷新：

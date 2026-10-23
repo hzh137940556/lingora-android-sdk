@@ -4,14 +4,22 @@ LINGORA_CONFIG ?= ci/lingora.dev.json
 LINGORA_CLI_VERSION := $(shell tr -d '\r\n' < lingora-cli.version)
 LINGORA := uvx --from "lingora-cli==$(LINGORA_CLI_VERSION)" lingora
 
-.PHONY: check_cli mock_ci verify
+.PHONY: check_cli cli-validate cli-push cli-pull mock_ci verify
 
 check_cli:
 	@command -v uv >/dev/null 2>&1 || { echo "错误：未安装 uv，请先安装 uv"; exit 127; }
 
-mock_ci: check_cli
+cli-validate: check_cli
+	$(LINGORA) --config "$(LINGORA_CONFIG)" validate
+
+cli-push: check_cli
 	$(LINGORA) --config "$(LINGORA_CONFIG)" push
+
+cli-pull: check_cli
 	$(LINGORA) --config "$(LINGORA_CONFIG)" pull
 
+mock_ci: cli-validate cli-push cli-pull
+
 verify:
-	./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+	./gradlew :app:testDebugUnitTest :app:assembleDebug \
+		-PlingoraSdkMode=local --no-daemon

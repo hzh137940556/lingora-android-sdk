@@ -1,3 +1,4 @@
+// 提供 Lingora Android SDK 的配置、namespace 翻译访问和加载状态。
 package io.lingora.android
 
 import android.content.Context
@@ -48,6 +49,31 @@ data class LingoraConfig(
     }
 }
 
+// 配置默认 namespace、附加 namespace 及附加文档路径。
+data class LingoraNamespaces(
+    val defaultNamespace: String = "app",
+    val additionalNamespaces: Set<String> = emptySet(),
+    val path: (namespace: String, languageTag: String) -> String =
+        { namespace, language -> "$namespace/$language.json" },
+) {
+    init {
+        require(defaultNamespace.isNotBlank()) { "defaultNamespace must not be blank" }
+        require(additionalNamespaces.none(String::isBlank)) {
+            "additionalNamespaces must not contain blank values"
+        }
+        require(defaultNamespace !in additionalNamespaces) {
+            "additionalNamespaces must not contain defaultNamespace"
+        }
+        additionalNamespaces.forEach { namespace ->
+            require(path(namespace, "en").isNotBlank()) {
+                "path must return a non-blank value for namespace $namespace"
+            }
+        }
+    }
+
+    internal val all: List<String> = listOf(defaultNamespace) + additionalNamespaces.sorted()
+}
+
 enum class LingoraSource { NETWORK, CACHE }
 
 sealed interface LingoraLoadState {
@@ -60,15 +86,20 @@ sealed interface LingoraLoadState {
 class Lingora private constructor(
     context: Context,
     private val config: LingoraConfig,
+    private val namespaces: LingoraNamespaces,
 ) {
-    private data class LoadedLocale(
+    private data class DocumentKey(
+        val localeTag: String,
+        val namespace: String,
+    )
+
+    private data class LoadedDocument(
         val localeTag: String,
         val document: TranslationDocument,
         val source: LingoraSource,
     )
 
     private data class FailedLoad(
-        val localeTag: String,
         val reason: String,
         val retryAfter: Long,
     )
@@ -80,14 +111,14 @@ class Lingora private constructor(
     private val _loadState = MutableStateFlow<LingoraLoadState>(LingoraLoadState.Idle)
     private val _changeVersion = MutableStateFlow(0L)
     private var manifestAttempted = false
-    // Accessed under loadMutex: queued and newly mounted collectors share a failed attempt too.
-    private var failedLoad: FailedLoad? = null
+    // Accessed under loadMutex: collectors share each language/namespace failure cooldown.
+    private val failedLoads = mutableMapOf<DocumentKey, FailedLoad>()
 
     @Volatile
     private var manifestLocales: List<String>? = null
 
     @Volatile
-    private var loadedLocale: LoadedLocale? = null
+    private var loadedDocuments: Map<DocumentKey, LoadedDocument> = emptyMap()
 
     val locale = _locale.asStateFlow()
     val availableLocaleTags = _availableLocaleTags.asStateFlow()
@@ -109,13 +140,36 @@ class Lingora private constructor(
     }
 
     fun t(key: String, vararg formatArgs: Any): String? {
-        val value = currentDocument()?.text(key) ?: return null
-        return formatSprintf(value, currentFormattingLocale(), formatArgs)
+        return t(key, *formatArgs, namespace = namespaces.defaultNamespace)
+    }
+
+    // 从指定 namespace 读取普通字符串；namespace 必须使用具名参数传入。
+    fun t(key: String, vararg formatArgs: Any, namespace: String): String? {
+        requireConfiguredNamespace(namespace)
+        val value = currentDocument(namespace)?.text(key) ?: return null
+        return formatSprintf(value, currentFormattingLocale(namespace), formatArgs)
     }
 
     fun t(context: Context, resourceId: Int, vararg formatArgs: Any): String {
+        return t(
+            context,
+            resourceId,
+            *formatArgs,
+            namespace = namespaces.defaultNamespace,
+        )
+    }
+
+    // 从指定 namespace 读取字符串资源，未命中时回退到 APK。
+    fun t(
+        context: Context,
+        resourceId: Int,
+        vararg formatArgs: Any,
+        namespace: String,
+    ): String {
+        requireConfiguredNamespace(namespace)
         val key = context.resources.getResourceEntryName(resourceId)
-        return t(key, *formatArgs) ?: context.getString(resourceId, *formatArgs)
+        return t(key, *formatArgs, namespace = namespace)
+            ?: context.getString(resourceId, *formatArgs)
     }
 
     fun tPlural(
@@ -124,10 +178,28 @@ class Lingora private constructor(
         quantity: Int,
         vararg formatArgs: Any,
     ): String {
+        return tPlural(
+            resources,
+            resourceId,
+            quantity,
+            *formatArgs,
+            namespace = namespaces.defaultNamespace,
+        )
+    }
+
+    // 从指定 namespace 读取 plural，未命中时回退到 APK。
+    fun tPlural(
+        resources: Resources,
+        resourceId: Int,
+        quantity: Int,
+        vararg formatArgs: Any,
+        namespace: String,
+    ): String {
+        requireConfiguredNamespace(namespace)
         val key = resources.getResourceEntryName(resourceId)
         val args = arrayOf(quantity, *formatArgs)
-        val locale = currentFormattingLocale()
-        val forms = currentDocument()?.plural(key)
+        val locale = currentFormattingLocale(namespace)
+        val forms = currentDocument(namespace)?.plural(key)
         val category = PluralRules.forLocale(locale).select(quantity.toDouble())
         val remote = forms?.get(category) ?: forms?.get("other")
         return remote?.let { formatSprintf(it, locale, args) }
@@ -135,18 +207,39 @@ class Lingora private constructor(
     }
 
     fun tArray(resources: Resources, resourceId: Int): List<String> {
+        return tArray(resources, resourceId, namespace = namespaces.defaultNamespace)
+    }
+
+    // 从指定 namespace 读取数组，未命中或长度不匹配时回退到 APK。
+    fun tArray(resources: Resources, resourceId: Int, namespace: String): List<String> {
+        requireConfiguredNamespace(namespace)
         val key = resources.getResourceEntryName(resourceId)
         val fallback = resources.getStringArray(resourceId).toList()
-        return currentDocument()?.stringArray(key)?.takeIf { it.size == fallback.size }
+        return currentDocument(namespace)?.stringArray(key)?.takeIf { it.size == fallback.size }
             ?: fallback
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun tFlow(context: Context, resourceId: Int, vararg formatArgs: Any): Flow<String> =
+        tFlow(
+            context,
+            resourceId,
+            *formatArgs,
+            namespace = namespaces.defaultNamespace,
+        )
+
+    // 订阅指定 namespace 的字符串资源更新。
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun tFlow(
+        context: Context,
+        resourceId: Int,
+        vararg formatArgs: Any,
+        namespace: String,
+    ): Flow<String> =
         requestedLocaleFlow().transformLatest { requestedLocale ->
-            emit(t(context, resourceId, *formatArgs))
+            emit(t(context, resourceId, *formatArgs, namespace = namespace))
             ensureLoaded(requestedLocale, updateLoadState = false)
-            emit(t(context, resourceId, *formatArgs))
+            emit(t(context, resourceId, *formatArgs, namespace = namespace))
         }.distinctUntilChanged()
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -155,18 +248,43 @@ class Lingora private constructor(
         resourceId: Int,
         quantity: Int,
         vararg formatArgs: Any,
+    ): Flow<String> = tPluralFlow(
+        resources,
+        resourceId,
+        quantity,
+        *formatArgs,
+        namespace = namespaces.defaultNamespace,
+    )
+
+    // 订阅指定 namespace 的 plural 资源更新。
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun tPluralFlow(
+        resources: Resources,
+        resourceId: Int,
+        quantity: Int,
+        vararg formatArgs: Any,
+        namespace: String,
     ): Flow<String> = requestedLocaleFlow().transformLatest { requestedLocale ->
-        emit(tPlural(resources, resourceId, quantity, *formatArgs))
+        emit(tPlural(resources, resourceId, quantity, *formatArgs, namespace = namespace))
         ensureLoaded(requestedLocale, updateLoadState = false)
-        emit(tPlural(resources, resourceId, quantity, *formatArgs))
+        emit(tPlural(resources, resourceId, quantity, *formatArgs, namespace = namespace))
     }.distinctUntilChanged()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun tArrayFlow(resources: Resources, resourceId: Int): Flow<List<String>> =
+        tArrayFlow(resources, resourceId, namespace = namespaces.defaultNamespace)
+
+    // 订阅指定 namespace 的数组资源更新。
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun tArrayFlow(
+        resources: Resources,
+        resourceId: Int,
+        namespace: String,
+    ): Flow<List<String>> =
         requestedLocaleFlow().transformLatest { requestedLocale ->
-            emit(tArray(resources, resourceId))
+            emit(tArray(resources, resourceId, namespace))
             ensureLoaded(requestedLocale, updateLoadState = false)
-            emit(tArray(resources, resourceId))
+            emit(tArray(resources, resourceId, namespace))
         }.distinctUntilChanged()
 
     private fun requestedLocaleFlow(): Flow<Locale> =
@@ -193,7 +311,6 @@ class Lingora private constructor(
             defaultLanguage = config.defaultLanguage,
         )
         if (resolvedTag == null) {
-            loadedLocale = null
             if (updateLoadState) {
                 _loadState.value = LingoraLoadState.UsingApkFallback(
                     "No published locale matches ${requestedLocale.toLanguageTag()}"
@@ -201,53 +318,64 @@ class Lingora private constructor(
             }
             return@withLock
         }
-        if (!forceRefresh) {
-            loadedLocale?.takeIf { it.localeTag.equals(resolvedTag, ignoreCase = true) }?.let {
-                if (updateLoadState) {
-                    _loadState.value = LingoraLoadState.Ready(it.localeTag, it.source)
-                }
-                return@withLock
-            }
-            failedLoad?.takeIf {
-                it.localeTag.equals(resolvedTag, ignoreCase = true) &&
+        val failures = mutableListOf<String>()
+        var changed = false
+        namespaces.all.forEach { namespace ->
+            val key = documentKey(resolvedTag, namespace)
+            if (!forceRefresh && loadedDocuments.containsKey(key)) return@forEach
+            if (!forceRefresh) {
+                failedLoads[key]?.takeIf {
                     SystemClock.elapsedRealtime() < it.retryAfter
-            }?.let {
-                if (updateLoadState) {
-                    _loadState.value = LingoraLoadState.UsingApkFallback(it.reason)
+                }?.let {
+                    failures += "$namespace: ${it.reason}"
+                    return@forEach
                 }
-                return@withLock
+            }
+            val path = translationPath(namespace, resolvedTag)
+            var result = loader.loadTranslations(path)
+            if ((result.exceptionOrNull() as? ContentDeliveryRequestException)?.retryable == true) {
+                // Keep the lock through the bounded retry so collectors cannot retry the same file.
+                delay(LOAD_RETRY_DELAY_MILLIS)
+                result = loader.loadTranslations(path)
+            }
+            result.fold(
+                onSuccess = { loaded ->
+                    failedLoads.remove(key)
+                    val source = when (loaded.source) {
+                        LoadedSource.NETWORK -> LingoraSource.NETWORK
+                        LoadedSource.CACHE -> LingoraSource.CACHE
+                    }
+                    loadedDocuments = loadedDocuments + (
+                        key to LoadedDocument(resolvedTag, loaded.value, source)
+                    )
+                    changed = true
+                },
+                onFailure = { failure ->
+                    val reason = failure.message ?: "Translations could not be loaded"
+                    failedLoads[key] = FailedLoad(
+                        reason,
+                        SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS,
+                    )
+                    failures += "$namespace: $reason"
+                },
+            )
+        }
+        if (changed) _changeVersion.value += 1
+        if (updateLoadState) {
+            val current = currentDocuments(resolvedTag)
+            _loadState.value = if (current.isNotEmpty()) {
+                val source = if (current.any { it.source == LingoraSource.NETWORK }) {
+                    LingoraSource.NETWORK
+                } else {
+                    LingoraSource.CACHE
+                }
+                LingoraLoadState.Ready(resolvedTag, source)
+            } else {
+                LingoraLoadState.UsingApkFallback(
+                    failures.firstOrNull() ?: "Translations could not be loaded"
+                )
             }
         }
-        var result = loader.loadTranslations(resolvedTag)
-        if ((result.exceptionOrNull() as? ContentDeliveryRequestException)?.retryable == true) {
-            // Keep the lock through the bounded retry so collectors cannot each retry the file.
-            delay(LOAD_RETRY_DELAY_MILLIS)
-            result = loader.loadTranslations(resolvedTag)
-        }
-        result.fold(
-            onSuccess = { result ->
-                failedLoad = null
-                val source = when (result.source) {
-                    LoadedSource.NETWORK -> LingoraSource.NETWORK
-                    LoadedSource.CACHE -> LingoraSource.CACHE
-                }
-                loadedLocale = LoadedLocale(resolvedTag, result.value, source)
-                if (updateLoadState) {
-                    _loadState.value = LingoraLoadState.Ready(resolvedTag, source)
-                }
-                _changeVersion.value += 1
-            },
-            onFailure = { failure ->
-                loadedLocale = null
-                val reason = failure.message ?: "Translations could not be loaded"
-                failedLoad = FailedLoad(
-                    resolvedTag, reason, SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS,
-                )
-                if (updateLoadState) {
-                    _loadState.value = LingoraLoadState.UsingApkFallback(reason)
-                }
-            },
-        )
     }
 
     private suspend fun loadManifestOnce(forceRefresh: Boolean) {
@@ -260,15 +388,43 @@ class Lingora private constructor(
         }
     }
 
-    private fun currentDocument(): TranslationDocument? {
+    // 返回当前语言和 namespace 对应的已加载文档。
+    private fun currentDocument(namespace: String): TranslationDocument? {
         val resolved = resolveLocale(_locale.value, manifestLocales, config.defaultLanguage)
-        return loadedLocale
-            ?.takeIf { resolved != null && it.localeTag.equals(resolved, ignoreCase = true) }
-            ?.document
+        return resolved?.let { loadedDocuments[documentKey(it, namespace)]?.document }
     }
 
-    private fun currentFormattingLocale(): Locale =
-        loadedLocale?.localeTag?.let(Locale::forLanguageTag) ?: _locale.value
+    // 使用对应文档语言格式化参数，未加载时跟随当前 locale。
+    private fun currentFormattingLocale(namespace: String): Locale {
+        val resolved = resolveLocale(_locale.value, manifestLocales, config.defaultLanguage)
+        return resolved?.let { loadedDocuments[documentKey(it, namespace)]?.localeTag }
+            ?.let(Locale::forLanguageTag)
+            ?: _locale.value
+    }
+
+    // 为每个 language/namespace 构造稳定的内存状态键。
+    private fun documentKey(localeTag: String, namespace: String): DocumentKey =
+        DocumentKey(localeTag.lowercase(Locale.ROOT), namespace)
+
+    // 返回指定语言当前仍有效的全部 namespace 文档。
+    private fun currentDocuments(localeTag: String): List<LoadedDocument> =
+        namespaces.all.mapNotNull { loadedDocuments[documentKey(localeTag, it)] }
+
+    // 默认 namespace 延续旧 config.path，附加 namespace 使用新路径配置。
+    private fun translationPath(namespace: String, localeTag: String): String {
+        val path = if (namespace == namespaces.defaultNamespace) {
+            config.path(localeTag)
+        } else {
+            namespaces.path(namespace, localeTag)
+        }
+        check(path.isNotBlank()) { "Translation path must not be blank" }
+        return path
+    }
+
+    // 阻止调用未声明 namespace 时静默落入错误文档。
+    private fun requireConfiguredNamespace(namespace: String) {
+        require(namespace in namespaces.all) { "Namespace is not configured: $namespace" }
+    }
 
     companion object {
         private const val LOAD_RETRY_DELAY_MILLIS = 1_000L
@@ -281,8 +437,16 @@ class Lingora private constructor(
             get() = singleton ?: error("Lingora is not initialized")
 
         fun init(context: Context, config: LingoraConfig): Lingora =
+            init(context, config, LingoraNamespaces())
+
+        // 使用显式 namespace 配置初始化单个 SDK 实例。
+        fun init(
+            context: Context,
+            config: LingoraConfig,
+            namespaces: LingoraNamespaces,
+        ): Lingora =
             singleton ?: synchronized(this) {
-                singleton ?: Lingora(context, config).also { singleton = it }
+                singleton ?: Lingora(context, config, namespaces).also { singleton = it }
             }
 
         internal fun resolveLocale(

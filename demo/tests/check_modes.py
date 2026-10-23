@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-# 使用真实 Gradle 配置验证非法模式、缺失版本和失效本地路径直接失败。
+# 验证 Gradle SDK 模式和 Demo CLI 的安全 push 策略。
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 
-# 只运行 help 配置阶段，不上传翻译、不发布包，也不依赖本机业务配置。
+# 只检查本地配置，不上传翻译、不发布包，也不依赖本机业务配置。
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
+    makefile = (root / "Makefile").read_text(encoding="utf-8")
+    if "-PlingoraSdkMode=local" not in makefile:
+        raise SystemExit("Demo verify must compile against the local SDK source")
+    push = json.loads((root / "ci/lingora.dev.json").read_text(encoding="utf-8"))["push"]
+    if push.get("forceMode") != "KEEP" or push.get("removeOtherKeys") is not False:
+        raise SystemExit("Demo push must keep existing values and preserve other server keys")
     cases = (
         (["-PlingoraSdkMode=unknown"], "lingoraSdkMode must be local, dev or release"),
         (["-PlingoraSdkMode=local", "-PlingoraLocalSdkPath=/nonexistent-sdk"], "Local SDK not found"),

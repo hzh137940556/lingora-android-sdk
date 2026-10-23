@@ -39,10 +39,9 @@ internal class ContentDeliveryLoader(
     suspend fun loadManifest(): Result<LoadedResource<ContentDeliveryManifest>> =
         load(config.manifestPath, ContentDeliveryManifest::parse)
 
-    suspend fun loadTranslations(
-        localeTag: String,
-    ): Result<LoadedResource<TranslationDocument>> =
-        load(config.path(localeTag), TranslationDocument::parse)
+    // 按已解析路径加载一个 language/namespace 翻译文档。
+    suspend fun loadTranslations(path: String): Result<LoadedResource<TranslationDocument>> =
+        load(path, TranslationDocument::parse)
 
     private suspend fun <T> load(
         path: String,

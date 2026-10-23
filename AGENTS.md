@@ -16,6 +16,7 @@
 - `sdk/settings.gradle.kts` 只包含 `:lingora-android-sdk`，不包含 App 或 Demo。
 - SDK 不依赖 App package、Compose、CLI、Delivery 环境值或 Demo 配置。
 - 保持公共 API 与 Kotlin package `io.lingora.android` 兼容；公开协程类型需要 `api` 依赖。
+- 多 namespace API 必须保留旧 JVM 方法签名；文档、缓存和失败状态按 `(localeTag, namespace)` 隔离。
 - `sdk/scripts/sdk_release.py` 统一管理版本、渠道、分支、Tag 和 Maven 坐标；不得改写或构建 Demo。
 - develop 的 `android-sdk-dev-X.Y.Z` -> `io.lingora:lingora-android-dev:X.Y.Z`。
 - main 的 `android-sdk-X.Y.Z` -> `io.lingora:lingora-android:X.Y.Z`。
@@ -36,7 +37,7 @@
 - App 独立配置 App ID、当前语言、公开 Delivery URL，不写入 API Key。
 - Delivery URL 优先级为 Gradle property `lingoraContentDeliveryUrl` > 环境变量 `LINGORA_CONTENT_DELIVERY_URL`；缺失时保留 APK fallback。
 - CLI 来自 Lingora 主仓库，本仓库只安装 `demo/lingora-cli.version` 固定版本并调用公开命令。
-- `demo/Makefile` 的 `mock_ci` 目标通过 `uvx` 调用 `demo/lingora-cli.version` 固定版本的 push/pull，失败立即退出；正常 Gradle 构建不运行 CLI。
+- `demo/Makefile` 的 `mock_ci` 目标通过 `uvx` 调用 `demo/lingora-cli.version` 固定版本的 validate/push/pull，失败立即退出；正常 Gradle 构建不运行 CLI。
 - 本仓库不保留 CLI 的 push、pull、validate 或 delivery 实现副本；只通过固定版本的 PyPI 包调用公开命令，不误删 Maven 发布工具。
 - CLI 配置位于 Demo，资源相对配置文件；生成资源仅写 `demo/generated/` 并忽略，API Key 只通过环境/Secret。
 - Demo CI 独立于 SDK 发包：普通 CI 验证 local 和两个 Maven fixture；dispatch 验证真实已发布包。
