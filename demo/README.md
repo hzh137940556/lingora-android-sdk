@@ -158,3 +158,26 @@ lifecycleScope.launch { Lingora.instance.refresh() }
 ```
 
 上述离线测试不代替真实 CLI push/pull、Maven 下载和生产配置验收。
+
+## 5. 本仓库的真实 CI 同步
+
+[Android Demo translations and build](../.github/workflows/android-demo-translations.yml)
+在 `develop` 更新后执行：固定版本 CLI 安装 → validate → push → pull → validate →
+四个必需 XML 检查 → 远程 Maven SDK 构建 → 上传 Debug APK。普通 PR 检查不上传文案。
+
+仓库管理员需要在 Settings → Secrets and variables → Actions 配置：
+
+- Secret `LINGORA_API_KEY`：可读写 `ci/lingora.dev.json` 中开发项目及 develop 分支的密钥。
+- Variable `LINGORA_CONTENT_DELIVERY_URL`：当前 Demo 开发环境的公开 Delivery URL，必须与该翻译配置对应。
+
+工作流只检出 `demo/`，使用配置文件中的固定 `lingoraSdkVersion`，并显式选择 dev Maven 包；
+不存在本地 SDK 源码回退。同仓库包使用 `packages: read` 的 `GITHUB_TOKEN`，无需额外 Maven PAT。
+跨仓库业务接入仍需按 [消费项目模板](ci/examples/README.md) 配置独立包读取凭据。
+
+CLI 仅 push 英语 app/common 源文件，pull 日语与简体中文的两个 namespace；KEEP 策略不变。
+生成资源只存在于 Runner，APK 从成功运行的 Actions Artifacts 下载，保留 7 天。
+首次通过审核合入 develop 后自动验收；工作流进入默认分支后也可手动选择 develop 运行。
+手动运行其他分支会跳过，历史提交落后于分支最新提交时会拒绝上传。
+
+验收需确认同步步骤、四个非空资源文件检查和 Maven 构建均成功，再安装产出的 APK 检查文案。
+自动构建不代表已完成设备安装或运行时 Delivery 发布验证。密钥缺失时工作流会在上传前失败。

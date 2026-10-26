@@ -46,7 +46,8 @@ cd demo
 - `Android Demo CI` 单独验证 local、dev/release Maven fixture；真实包发布后另行请求独立下载验收。
 - Demo 下载验收失败不改变“SDK 包已上传”的事实，也不覆盖已发布版本。
 - 业务项目合并后的翻译同步与构建可使用 [消费项目 CI 模板](demo/ci/examples/README.md)，
-  开发者本地无需安装 CLI；模板不会在本 SDK 仓库自动上传文案。
+  开发者本地无需安装 CLI。当前 Demo 另有 [开发环境同步工作流](.github/workflows/android-demo-translations.yml)，
+  在 develop 更新后同步文案并消费远程 SDK 构建 APK，需先配置翻译 Secret 和公开 URL 变量。
 - 发布与权限步骤见 [GitHub 配置清单](GITHUB_SETUP.md)；Demo、Delivery 与 CLI 见 [Demo 文档](demo/README.md)。
 
 ## 从旧布局迁移

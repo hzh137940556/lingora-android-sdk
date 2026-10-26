@@ -76,7 +76,7 @@ jobs:
             exit 1
           fi
 
-      - name: Validate source, push and pull
+      - name: Validate resources, push and pull
         env:
           LINGORA_API_KEY: ${{ secrets.LINGORA_API_KEY }}
         run: |

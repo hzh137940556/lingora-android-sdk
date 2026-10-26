@@ -53,7 +53,7 @@ credentials {
 - `main` 的 push 触发工作流，包括 PR 合并与直接推送。业务仓库要求 main 只能通过 PR 合并，
   即可用于合并后的同步。普通 PR 校验不使用该写入流程；合并后任务不能作为合并前门禁。
 - `validate → push → pull → validate → 必需语言文件检查 → 构建` 在同一工作区串行执行，
-  任一步失败就停止。验证空目录可能成功，因此必须保留后面的产出检查。
+  任一步失败就停止。validate 检查本地导出资源，空目录也可能成功，不能将上传前的 validate 当作源文案或凭据验收；必须保留后面的产出检查。
 - 成功的 push 不会因后续失败自动回滚；重试前确认覆盖策略。当前示例 `KEEP` 保留已有非空值，
   并不自动同步已修改的英语文案。`TRANSLATED + REVIEWED` 允许未审核翻译，生产策略需要团队确认。
 - 不恢复或缓存 `generated/`；Hosted Runner 从干净检出开始，CLI `emptyDir=true` 替换生成目录。
@@ -66,3 +66,11 @@ credentials {
 
 先在专用测试项目跑通一次真实 push/pull、远程 Maven 下载与 APK 安装，再用于生产。
 本模板不发布 SDK、不创建版本 Tag，也不会自动上传生产应用。
+
+## 当前 Demo 的对应实现
+
+本仓库已另行配置 [Demo 开发环境工作流](../../../.github/workflows/android-demo-translations.yml)，
+使用 `demo` 工作目录、`ci/lingora.dev.json` 和 develop 触发分支。checkout 只包含 Demo，
+上传 APK 的路径仍相对于仓库根目录，必须写成 `demo/app/build/outputs/apk/debug/*.apk`。
+同仓库 SDK 包使用带 `packages: read` 的 `GITHUB_TOKEN`；本模板面向其他业务仓库，
+保留独立 Maven 凭据。配置及验收步骤见 [Demo 文档](../../README.md#5-本仓库的真实-ci-同步)。
