@@ -37,7 +37,7 @@ android {
         versionName = "1.0"
         buildConfigField("String", "LINGORA_CONTENT_DELIVERY_URL", deliveryUrlLiteral)
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.example.myapplication.DemoTestRunner"
     }
 
     sourceSets.getByName("main") {
@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

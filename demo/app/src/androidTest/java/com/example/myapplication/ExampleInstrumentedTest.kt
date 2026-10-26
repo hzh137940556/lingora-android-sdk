@@ -22,17 +22,18 @@ class ExampleInstrumentedTest {
         assertEquals(BuildConfig.APPLICATION_ID, appContext.packageName)
     }
 
+    // 未提供的语言应能读取默认资源，不依赖已删除的日语手工翻译。
     @Test
-    fun localJapaneseResourceIsAvailableWithoutPulledKey() {
+    fun unsupportedLocaleUsesDefaultApkResource() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val configuration = Configuration(appContext.resources.configuration).apply {
-            setLocale(Locale.JAPANESE)
+            setLocale(Locale.forLanguageTag("zz"))
         }
-        val japaneseContext = appContext.createConfigurationContext(configuration)
+        val fallbackContext = appContext.createConfigurationContext(configuration)
 
         assertEquals(
-            "ローカル通知",
-            japaneseContext.getString(R.string.local_notice),
+            "Local notice",
+            fallbackContext.getString(R.string.local_notice),
         )
     }
 }

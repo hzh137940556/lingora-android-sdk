@@ -64,16 +64,56 @@ make cli-pull
 
 CLI 只负责同步资源，不会自动翻译，也不会在普通 Gradle 构建中自动运行。
 
+`mock_ci` 即使通过 `make -j` 调用也会串行执行，任一步失败就停止。
+`KEEP` 不覆盖服务端已有非空英语文案，因此本地修改已有文案不等于服务端会同步替换；
+该策略保持不变，需要更新既有值时先确定团队的冲突处理规则。
+业务项目可复制 [合并后同步与构建模板](ci/examples/README.md)，不必让开发者本地安装 CLI。
+
 ## 3. App 前端使用
 
-先为 App 配置公开 Content Delivery URL：
+Demo 的 `gradle.properties` 已提供默认开发环境的公开 Content Delivery URL。
+需要切换时可以修改配置或通过命令行 `-P` 覆盖：
 
 ```properties
 lingoraContentDeliveryUrl=https://example.com/lingora/localstrings/dev/v1
 ```
 
-也可以通过环境变量 `LINGORA_CONTENT_DELIVERY_URL` 注入。未配置或远端不可用时，SDK 自动使用
-`app/src/main/res` 中的 APK 文案。
+构建脚本优先读取 Gradle property `lingoraContentDeliveryUrl`，仅在该 property 不存在时
+才读取环境变量 `LINGORA_CONTENT_DELIVERY_URL`。由于 Demo 已有默认 property，**单独设置
+环境变量不会覆盖开发地址**；命令行 `-P` 可以覆盖配置文件中的值。
+
+### 业务 CI 显式选择地址
+
+在业务 CI 中配置环境变量，再明确将其传给 Gradle。以下步骤放在 JDK、Android SDK、
+Maven 凭据及翻译同步已完成之后；在本仓库运行时工作目录为 `demo`，业务项目通常为仓库根目录：
+
+```yaml
+- name: Build Android App
+  working-directory: demo # 业务项目按实际 Gradle 根目录调整
+  env:
+    LINGORA_CONTENT_DELIVERY_URL: ${{ vars.LINGORA_CONTENT_DELIVERY_URL }}
+  shell: bash
+  run: |
+    set -euo pipefail
+    delivery_url="${LINGORA_CONTENT_DELIVERY_URL:-}"
+    if [[ -z "${delivery_url//[[:space:]]/}" ]]; then
+      echo "Missing LINGORA_CONTENT_DELIVERY_URL; refusing to build with the default development URL."
+      exit 1
+    fi
+    ./gradlew :app:assembleDebug \
+      "-PlingoraContentDeliveryUrl=$delivery_url" \
+      --no-daemon
+```
+
+变量缺失、为空或只有空白时，该步骤在 Gradle 启动前失败。实际业务项目替换为已有 flavor、
+测试及签名打包任务，并保留同样的 `-P` 参数；这里不改变 SDK 依赖来源。
+选择的地址必须与 CLI 同步所用 Project、Branch 和 namespace 对应。URL 是公开地址，
+不要把 `LINGORA_API_KEY` 或 Maven Token 传给这个字段。
+
+该示例供业务 CI 使用，不改变本仓库普通 Demo CI 的默认环境。未配置地址或远端不可用时，
+SDK 使用 APK 内置文案；如需本地测试空地址，可显式传 `-PlingoraContentDeliveryUrl=`。
+
+### 初始化与页面调用
 
 App 在 [LingoraDemoApplication.kt](app/src/main/java/com/example/myapplication/LingoraDemoApplication.kt)
 初始化 SDK。Compose 页面使用响应式 API：
@@ -103,3 +143,18 @@ lifecycleScope.launch { Lingora.instance.refresh() }
 ```bash
 ./gradlew :app:assembleDebug
 ```
+
+## 4. 验证
+
+`make test-cli` 使用临时命令替身检查并行 Make 的顺序、失败中止和固定 CLI 版本，不访问服务端。
+`make verify` 先运行这些测试，再以 local SDK 模式执行 App 单元测试、Debug 构建和设备测试 APK 编译。
+普通 Demo CI 因此也会检查设备测试能否编译，但不会自动启动设备测试。
+
+设备测试通过 `DemoTestRunner` 使用空 Delivery URL 的测试 Application，不受开发环境文案变化影响。
+原来的手工日语资源已移除，测试改为验证未提供语言的默认 APK 文案。设备可用时执行：
+
+```bash
+./gradlew :app:connectedDebugAndroidTest -PlingoraSdkMode=local
+```
+
+上述离线测试不代替真实 CLI push/pull、Maven 下载和生产配置验收。

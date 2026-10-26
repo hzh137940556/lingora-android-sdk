@@ -1,0 +1,122 @@
+# 消费项目模板：复制到业务仓库 .github/workflows/ 后执行，不在本仓库启用。
+name: Android translations and build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# 写入同一翻译目标的工作流使用相同组，不中断正在执行的同步。
+concurrency:
+  group: lingora-production
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LINGORA_CONFIG: ci/lingora.production.json
+      LINGORA_CONTENT_DELIVERY_URL: ${{ vars.LINGORA_CONTENT_DELIVERY_URL }}
+      # 按实际语言、namespace 和 fileStructureTemplate 调整必需文件。
+      REQUIRED_TRANSLATION_FILES: >-
+        ["generated/lingora/res/values-ja/app.xml",
+         "generated/lingora/res/values-ja/common.xml",
+         "generated/lingora/res/values-zh-rCN/app.xml",
+         "generated/lingora/res/values-zh-rCN/common.xml"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check inputs
+        env:
+          LINGORA_API_KEY: ${{ secrets.LINGORA_API_KEY }}
+          LINGORA_MAVEN_USER: ${{ vars.LINGORA_MAVEN_USER }}
+          LINGORA_MAVEN_TOKEN: ${{ secrets.LINGORA_MAVEN_TOKEN }}
+        run: |
+          test -f "$LINGORA_CONFIG"
+          test -s lingora-cli.version
+          : "${LINGORA_API_KEY:?Missing LINGORA_API_KEY}"
+          : "${LINGORA_MAVEN_USER:?Missing LINGORA_MAVEN_USER}"
+          : "${LINGORA_MAVEN_TOKEN:?Missing LINGORA_MAVEN_TOKEN}"
+          [[ -n "${LINGORA_CONTENT_DELIVERY_URL//[[:space:]]/}" ]]
+
+      # 按业务项目的工具链调整，不要求更换已有版本。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install pinned CLI
+        run: |
+          CLI_VERSION="$(tr -d '\r\n' < lingora-cli.version)"
+          [[ "$CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$ ]]
+          uv tool install --python 3.12 "lingora-cli==$CLI_VERSION"
+          "$(uv tool dir --bin)/lingora" --version
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: Reject outdated source before writing translations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)"
+          if [ "$latest_sha" != "$GITHUB_SHA" ]; then
+            echo "Source is outdated; run the workflow for the latest branch commit."
+            exit 1
+          fi
+
+      - name: Validate source, push and pull
+        env:
+          LINGORA_API_KEY: ${{ secrets.LINGORA_API_KEY }}
+        run: |
+          lingora --config "$LINGORA_CONFIG" validate
+          lingora --config "$LINGORA_CONFIG" push
+          lingora --config "$LINGORA_CONFIG" pull
+          lingora --config "$LINGORA_CONFIG" validate
+
+      - name: Require expected translation files
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          paths = json.loads(os.environ["REQUIRED_TRANSLATION_FILES"])
+          if not isinstance(paths, list) or not paths:
+              raise SystemExit("Configure a nonempty REQUIRED_TRANSLATION_FILES list")
+          for name in paths:
+              path = Path(name)
+              if not path.is_file():
+                  raise SystemExit(f"Missing translation file: {path}")
+              root = ET.parse(path).getroot()
+              if root.tag != "resources" or len(root) == 0:
+                  raise SystemExit(f"Empty or invalid Android resources: {path}")
+          print(f"Verified {len(paths)} required translation files")
+          PY
+
+      - name: Build App with explicit Delivery URL
+        env:
+          LINGORA_MAVEN_USER: ${{ vars.LINGORA_MAVEN_USER }}
+          LINGORA_MAVEN_TOKEN: ${{ secrets.LINGORA_MAVEN_TOKEN }}
+        run: |
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug \
+            "-PlingoraContentDeliveryUrl=$LINGORA_CONTENT_DELIVERY_URL" --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7

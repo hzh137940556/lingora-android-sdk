@@ -22,13 +22,14 @@ Makefile                 仅转发常用命令
 
 | 模式 | 配置 | 来源 |
 | --- | --- | --- |
-| 本地源码（默认） | `lingoraSdkMode=local` | `../sdk`，可用 `lingoraLocalSdkPath` 覆盖 |
-| 测试包 | `lingoraSdkMode=dev` 和 `lingoraSdkVersion=X.Y.Z` | `io.lingora:lingora-android-dev:X.Y.Z` |
+| 本地源码 | `lingoraSdkMode=local` | `../sdk`，可用 `lingoraLocalSdkPath` 覆盖 |
+| 测试包（当前默认） | `lingoraSdkMode=dev` 和 `lingoraSdkVersion=0.1.4` | `io.lingora:lingora-android-dev:0.1.4` |
 | 正式包 | `lingoraSdkMode=release` 和 `lingoraSdkVersion=X.Y.Z` | `io.lingora:lingora-android:X.Y.Z` |
 
 App 只有一条 dependency 声明，local 使用 Gradle Composite Build 替换；远端模式完全不加载
-SDK 工程，不存在失败后偷偷回退本地的行为。默认保留 local：尚无本次验收确认可下载的远端固定版本，
-首次包下载验收后再单独固定默认 Maven 版本，不把等待审批的 Tag 当作已发布版本。
+SDK 工程，不存在失败后偷偷回退本地的行为。默认 Maven 模式需要读取凭据；
+源码联调或无远端凭据时显式选择 local。版本以 `demo/gradle.properties` 为准，
+配置版本不等于本机已经完成下载验收。
 
 ```bash
 make verify-sdk
@@ -44,6 +45,8 @@ cd demo
 - `Android SDK CI` 只测试 SDK 和 Maven 产物，不加载 Demo。两渠道使用独立审批环境，审批保护、Tag 及 Maven 坐标保持不变。
 - `Android Demo CI` 单独验证 local、dev/release Maven fixture；真实包发布后另行请求独立下载验收。
 - Demo 下载验收失败不改变“SDK 包已上传”的事实，也不覆盖已发布版本。
+- 业务项目合并后的翻译同步与构建可使用 [消费项目 CI 模板](demo/ci/examples/README.md)，
+  开发者本地无需安装 CLI；模板不会在本 SDK 仓库自动上传文案。
 - 发布与权限步骤见 [GitHub 配置清单](GITHUB_SETUP.md)；Demo、Delivery 与 CLI 见 [Demo 文档](demo/README.md)。
 
 ## 从旧布局迁移

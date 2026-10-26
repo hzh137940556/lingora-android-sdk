@@ -54,6 +54,39 @@ dependencies {
 Content Delivery URL 是公开地址，不要把 API Key 放入 APK。建议通过 BuildConfig、flavor 或
 CI 环境注入 URL。
 
+在 App 的 `build.gradle.kts` 中加入以下配置（变量声明放在已有 `plugins` 块之后）：
+
+```kotlin
+val deliveryUrl = providers.gradleProperty("lingoraContentDeliveryUrl")
+    .orElse(providers.environmentVariable("LINGORA_CONTENT_DELIVERY_URL"))
+    .getOrElse("")
+
+android {
+    buildFeatures {
+        buildConfig = true
+    }
+    defaultConfig {
+        buildConfigField(
+            "String", "LINGORA_CONTENT_DELIVERY_URL",
+            groovy.json.JsonOutput.toJson(deliveryUrl),
+        )
+    }
+    // 使用 CLI 生成资源时配置；路径相对于消费项目根目录。
+    sourceSets.getByName("main") {
+        res.srcDir(rootProject.file("generated/lingora/res"))
+    }
+}
+```
+
+`buildConfig = true` 只开启生成，字段由 `buildConfigField` 定义；仅传 `-P` 不会创建字段。
+初始化代码应使用 App 的 `android.namespace` 对应的 BuildConfig，不要导入 SDK 的 BuildConfig。
+生成目录加入 `.gitignore`，不要与源码目录重复定义同语言、同类型、同名资源。
+
+如果沿用 Demo 构建配置，Gradle property 优先于 `LINGORA_CONTENT_DELIVERY_URL` 环境变量。
+Demo 已配置默认开发地址，业务 CI 必须先检查环境变量非空，再通过
+`"-PlingoraContentDeliveryUrl=$LINGORA_CONTENT_DELIVERY_URL"` 显式传入，避免误用开发地址。
+完整步骤见 [Demo 的业务 CI 地址配置](../demo/README.md#业务-ci-显式选择地址)。
+
 在自定义 `Application` 中初始化一次：
 
 ```kotlin
@@ -78,13 +111,19 @@ class App : Application() {
 }
 ```
 
-并在 `AndroidManifest.xml` 注册：
+在 App 的 `AndroidManifest.xml` 声明网络权限，并注册初始化所在的 Application：
 
 ```xml
-<application
-    android:name=".App"
-    ... />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:name=".App">
+        <!-- 保留项目已有的 Activity 等组件。 -->
+    </application>
+</manifest>
 ```
+
+已有 Application 时直接在其 `onCreate()` 中初始化，保留原来的类和 Manifest 属性；
+SDK 不声明网络权限，也不会自动注册 Application。
 
 对应的 Content Delivery 根目录需要提供：
 
