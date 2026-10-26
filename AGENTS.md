@@ -40,6 +40,7 @@
 - `demo/Makefile` 的 `mock_ci` 目标通过 `uvx` 调用 `demo/lingora-cli.version` 固定版本的 validate/push/pull，失败立即退出；正常 Gradle 构建不运行 CLI。
 - 本仓库不保留 CLI 的 push、pull、validate 或 delivery 实现副本；只通过固定版本的 PyPI 包调用公开命令，不误删 Maven 发布工具。
 - CLI 配置位于 Demo，资源相对配置文件；生成资源仅写 `demo/generated/` 并忽略，API Key 只通过环境/Secret。
+- Demo 翻译同步工作流仅在 develop 更新或手动选择 develop 时执行真实 push/pull，只检出 Demo 并消费固定 dev Maven 包；API Key 只从 Secret 注入，不在 PR 检查中上传文案。
 - Demo CI 独立于 SDK 发包：普通 CI 验证 local 和两个 Maven fixture；dispatch 验证真实已发布包。
 - fixture init script 只用于测试，不用于正常接入。真实包 smoke 不加载 SDK 源码、不改写依赖文件。
 - 调度 Job 仅 actions:write；dispatch 失败必须提示尚未验收，不能伪称下载成功或回滚已上传包。

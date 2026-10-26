@@ -25,16 +25,18 @@ class TranslationTestPageTest {
         composeRule.onNodeWithText("Close").assertIsDisplayed()
     }
 
+    // 使用未发布语言验证弹窗读取默认 APK 文案，测试 Application 不发起网络请求。
     @Test
-    fun localOnlyKeyUsesJapaneseApkFallback() {
-        composeRule.runOnUiThread { Lingora.instance.setLocale("ja") }
+    fun unsupportedLocaleUsesDefaultApkFallback() {
+        composeRule.runOnUiThread { Lingora.instance.setLocale("zz") }
 
         composeRule.onNodeWithText("local_notice").performClick()
-        composeRule.onNodeWithText("ローカル通知").assertIsDisplayed()
+        composeRule.onNodeWithText("Local notice").assertIsDisplayed()
     }
 
+    // 数组现位于 app namespace 的基础资源文件中。
     @Test
-    fun arrayFromSeparateXmlIsAvailableOnTheDemoPage() {
+    fun appNamespaceArrayIsAvailableOnTheDemoPage() {
         composeRule.onNodeWithText("en_month").assertExists()
     }
 }
