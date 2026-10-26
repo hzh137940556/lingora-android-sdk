@@ -23,7 +23,7 @@ Makefile                 仅转发常用命令
 | 模式 | 配置 | 来源 |
 | --- | --- | --- |
 | 本地源码 | `lingoraSdkMode=local` | `../sdk`，可用 `lingoraLocalSdkPath` 覆盖 |
-| 测试包（当前默认） | `lingoraSdkMode=dev` 和 `lingoraSdkVersion=0.1.4` | `io.lingora:lingora-android-dev:0.1.4` |
+| 测试包（当前默认） | `lingoraSdkMode=dev` 和 `lingoraSdkVersion=0.1.5` | `io.lingora:lingora-android-dev:0.1.5` |
 | 正式包 | `lingoraSdkMode=release` 和 `lingoraSdkVersion=X.Y.Z` | `io.lingora:lingora-android:X.Y.Z` |
 
 App 只有一条 dependency 声明，local 使用 Gradle Composite Build 替换；远端模式完全不加载

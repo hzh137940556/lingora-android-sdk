@@ -10,7 +10,7 @@ Demo 支持三种 SDK 来源：
 ```properties
 # 默认使用 GitHub Packages 测试包
 lingoraSdkMode=dev
-lingoraSdkVersion=0.1.4
+lingoraSdkVersion=0.1.5
 
 # 本仓库源码联调
 # lingoraSdkMode=local
