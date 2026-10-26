@@ -181,3 +181,17 @@ CLI 仅 push 英语 app/common 源文件，pull 日语与简体中文的两个 n
 
 验收需确认同步步骤、四个非空资源文件检查和 Maven 构建均成功，再安装产出的 APK 检查文案。
 自动构建不代表已完成设备安装或运行时 Delivery 发布验证。密钥缺失时工作流会在上传前失败。
+
+本 Demo 的独立验收项目为 `Lingora Android Demo CI`
+（Project ID：`711537ef-ce6e-442f-b92c-dbade5f090c2`），翻译分支为 `develop`，
+基础语言 `en-US`，目标语言 `ja`、`zh-CN`，namespace 为 `app`、`common`。
+公开交付配置 `Android Demo CI Develop` 使用 Android SDK JSON，文件结构为
+`{namespace}/{languageTag}.{extension}`，URL 为：
+
+```text
+https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1
+```
+
+已录入 `app/welcome` 和 `common/common_notice` 的中日验收译文；其他源词条由 CI push 导入，
+后续在平台补充目标语言翻译。当前非空文件检查不代表全量翻译覆盖。
+Content Delivery 使用手工发布：CLI push/pull 成功不会自动刷新该公开地址。
