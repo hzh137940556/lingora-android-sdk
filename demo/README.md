@@ -204,8 +204,6 @@ Content Delivery 使用手工发布：CLI push/pull 成功不会自动刷新该�
 SDK 按数量选择当前语言的一条结果，自动将 quantity 放在 `%1$d` 参数位置，不重复传入。
 
 验收使用上节的 dev 项目、`develop` 分支和公开 Delivery，字段应与 Demo 的 app/common XML 对应。
-平台将数组拆成 `weekdays[0]` 等词条，Android SDK 导出后会重新组成数组。
-英语基础资源共对应 32 个平台词条；目标语言未翻译的词条仍回退 APK，不能以此声称远端已覆盖。
 
 ```text
 en-US: {count, plural, one {%1$d item} other {%1$d items}}
@@ -219,12 +217,11 @@ ja:    {count, plural, other {%1$d個}}
 # 在 demo/ 执行。dev 模式需要个人 GitHub Packages 读取凭据。
 ./gradlew :app:connectedDebugAndroidTest \
   -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.5 \
-  -PlingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1 \
   '-Pandroid.testInstrumentationRunnerArguments.class=com.example.myapplication.TranslationTestPageTest#publishedEnglishAndJapanesePlurals' \
   -Pandroid.testInstrumentationRunnerArguments.lingoraTestDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1
 ```
 
-该用例验证英语 → 日语 → 英语的四个数量结果；默认离线测试跳过此用例。
+该用例先检查已发布语言包包含预期复数分支，再验证英语 → 日语 → 英语的四个数量结果；默认离线测试跳过此用例。
 `lingoraTestDeliveryUrl` 只影响测试 Application，普通 App 使用 BuildConfig 中的 Delivery 地址。
 源码 SDK 联调需显式改用 `-PlingoraSdkMode=local` 并保留同一个 dev Delivery；
 源码联调通过不代表已发布 Maven 包通过，远端下载失败时不能自动回退源码。

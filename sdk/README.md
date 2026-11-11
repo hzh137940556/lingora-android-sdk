@@ -180,11 +180,7 @@ val sharedNotice = lingora.t(
   Tolgee 选中类别缺失时直接回退 APK，本次不修改此行为。
 - 不可用的远端文案仍由 Android `Resources.getQuantityString` 回退；调用方应传入当前语言的 Resources。
 
-对照基线：[Tolgee Kotlin SDK 446d214](https://github.com/tolgee/tolgee-mobile-kotlin-sdk/tree/446d2147fa4377148acaf20fe5ba854df085feab)，
-主要路径为 `TolgeeAndroid.tPlural` 与 `TranslationSprintf.localized/getPluralName`。
-这里对照 Android SDK JSON、参数顺序和类别选择约定，保留上述回退差异；
-不声明完整 ICU formatter 或所有格式化行为等价。
-Lingora 使用 Android ICU，Tolgee 使用 i18n4k CLDR，规则数据版本取决于各自运行环境。
+对照基线：[Tolgee Kotlin SDK 446d214](https://github.com/tolgee/tolgee-mobile-kotlin-sdk/tree/446d2147fa4377148acaf20fe5ba854df085feab)。
 
 ### Compose 或其他响应式页面
 

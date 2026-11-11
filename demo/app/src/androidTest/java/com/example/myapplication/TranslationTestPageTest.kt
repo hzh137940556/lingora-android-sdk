@@ -10,7 +10,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.lingora.android.LingoraLoadState
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
+import java.net.HttpURLConnection
+import java.net.URL
 import io.lingora.android.Lingora
 import org.junit.Rule
 import org.junit.Test
@@ -46,10 +50,15 @@ class TranslationTestPageTest {
         }
     }
 
-    // 显式启用的已发布语言包验收，要求加载成功并验证语言切换后的复数 UI。
+    // 显式验收已发布复数分支及切换后的 UI，避免缺失英文词条时由 APK 掩盖。
     @Test
     fun publishedEnglishAndJapanesePlurals() {
-        assumeTrue(!InstrumentationRegistry.getArguments().getString("lingoraTestDeliveryUrl").isNullOrBlank())
+        val deliveryUrl = InstrumentationRegistry.getArguments().getString("lingoraTestDeliveryUrl")
+        assumeTrue(!deliveryUrl.isNullOrBlank())
+        assertPublishedPluralForms(requireNotNull(deliveryUrl), "en-US", mapOf(
+            "one" to "%1\$d item", "other" to "%1\$d items",
+        ))
+        assertPublishedPluralForms(deliveryUrl, "ja", mapOf("other" to "%1\$d個"))
         for (locale in listOf("en-US", "ja", "en-US")) {
             composeRule.runOnUiThread { Lingora.instance.setLocale(locale) }
             val expected = if (locale == "ja") {
@@ -64,6 +73,29 @@ class TranslationTestPageTest {
             expected.forEach { value ->
                 composeRule.onNodeWithText(value).performScrollTo().assertIsDisplayed()
             }
+        }
+    }
+
+    // 独立读取公开语言包并检查必需分支；HTTP 失败或缺少词条不能被 APK 回退掩盖。
+    private fun assertPublishedPluralForms(
+        deliveryUrl: String,
+        locale: String,
+        expected: Map<String, String>,
+    ) {
+        val connection = URL("${deliveryUrl.trimEnd('/')}/app/$locale.json")
+            .openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 15_000
+            connection.useCaches = false
+            assertEquals("Published $locale document", 200, connection.responseCode)
+            val document = connection.inputStream.bufferedReader().use { JSONObject(it.readText()) }
+            val forms = document.getJSONObject("items_count")
+            expected.forEach { (category, template) ->
+                assertEquals("$locale items_count.$category", template, forms.getString(category))
+            }
+        } finally {
+            connection.disconnect()
         }
     }
 
