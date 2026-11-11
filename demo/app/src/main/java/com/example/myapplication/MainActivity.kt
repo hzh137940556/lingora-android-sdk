@@ -149,6 +149,7 @@ private fun TranslationTestPage(
         TranslationButton("welcome_name", welcomeName) { selectedTranslation = it }
         TranslationButton("local_notice", localNotice) { selectedTranslation = it }
         TranslationButton("items_count", quantity) { selectedTranslation = it }
+        PluralExamples(lingora)
         TranslationButton("weekdays", weekdays.joinToString()) { selectedTranslation = it }
         TranslationButton("en_month", months.joinToString()) { selectedTranslation = it }
         Text(lingoraStringResource(lingora, R.string.namespace_common))
@@ -166,6 +167,21 @@ private fun TranslationTestPage(
                 }
             },
         )
+    }
+}
+
+// 同时显示多个数量，切换语言或刷新后通过 SDK Flow 更新复数结果。
+@Composable
+private fun PluralExamples(lingora: Lingora, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(0, 1, 2, 5).forEach { count ->
+                Text(lingoraPluralStringResource(lingora, R.plurals.items_count, count))
+            }
+        }
     }
 }
 

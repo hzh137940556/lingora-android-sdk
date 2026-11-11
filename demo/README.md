@@ -150,7 +150,8 @@ lifecycleScope.launch { Lingora.instance.refresh() }
 `make verify` 先运行这些测试，再以 local SDK 模式执行 App 单元测试、Debug 构建和设备测试 APK 编译。
 普通 Demo CI 因此也会检查设备测试能否编译，但不会自动启动设备测试。
 
-设备测试通过 `DemoTestRunner` 使用空 Delivery URL 的测试 Application，不受开发环境文案变化影响。
+设备测试通过 `DemoTestRunner` 默认使用空 Delivery URL，不受开发环境文案变化影响。
+仅显式传入 `lingoraTestDeliveryUrl` 时才启用已发布语言包验收。
 原来的手工日语资源已移除，测试改为验证未提供语言的默认 APK 文案。设备可用时执行：
 
 ```bash
@@ -195,3 +196,36 @@ https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-c
 已录入 `app/welcome` 和 `common/common_notice` 的中日验收译文；其他源词条由 CI push 导入，
 后续在平台补充目标语言翻译。当前非空文件检查不代表全量翻译覆盖。
 Content Delivery 使用手工发布：CLI push/pull 成功不会自动刷新该公开地址。
+
+## 6. 英日复数验收
+
+页面沿用 `app/items_count`，同时展示 0、1、2、5，切换语言后自动更新。
+平台上的两行是英语 `one` 与 `other` 分支；日语只有 `other`。
+SDK 按数量选择当前语言的一条结果，自动将 quantity 放在 `%1$d` 参数位置，不重复传入。
+
+验收使用上节的 dev 项目、`develop` 分支和公开 Delivery，字段应与 Demo 的 app/common XML 对应。
+平台将数组拆成 `weekdays[0]` 等词条，Android SDK 导出后会重新组成数组。
+英语基础资源共对应 32 个平台词条；目标语言未翻译的词条仍回退 APK，不能以此声称远端已覆盖。
+
+```text
+en-US: {count, plural, one {%1$d item} other {%1$d items}}
+ja:    {count, plural, other {%1$d個}}
+```
+
+保存译文后，手工发布 `Android Demo CI Develop` 的当前 develop 内容；确认公开
+`app/en-US.json` 中有 one/other、`app/ja.json` 中有 other，再执行：
+
+```bash
+# 在 demo/ 执行。dev 模式需要个人 GitHub Packages 读取凭据。
+./gradlew :app:connectedDebugAndroidTest \
+  -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.5 \
+  -PlingoraContentDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1 \
+  '-Pandroid.testInstrumentationRunnerArguments.class=com.example.myapplication.TranslationTestPageTest#publishedEnglishAndJapanesePlurals' \
+  -Pandroid.testInstrumentationRunnerArguments.lingoraTestDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1
+```
+
+该用例验证英语 → 日语 → 英语的四个数量结果；默认离线测试跳过此用例。
+`lingoraTestDeliveryUrl` 只影响测试 Application，普通 App 使用 BuildConfig 中的 Delivery 地址。
+源码 SDK 联调需显式改用 `-PlingoraSdkMode=local` 并保留同一个 dev Delivery；
+源码联调通过不代表已发布 Maven 包通过，远端下载失败时不能自动回退源码。
+复数回退继续使用“选中类别 → 远端 other → APK”，与 Tolgee 的差异见 SDK 接入文档。

@@ -34,6 +34,34 @@ class LingoraRequestsTest {
         listOf("Common text", "2 common items", "Common Monday|Common Tuesday")
     private val fallbackValues = listOf("APK text", "2 APK items", "APK Monday|APK Tuesday")
 
+    // 验证下载的结构化复数按语言选分支；日语只需 other，且切回英语不会沿用日语。
+    @Test
+    fun englishAndJapaneseRemotePluralsFollowLocaleRules(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.translationResponse = { request, _ ->
+                if (request.path == "/app/ja.json") {
+                    Reply(body = """{"audit_quantity":{"other":"%1${'$'}d個"}}""")
+                } else {
+                    Reply(body = """{"audit_quantity":{"one":"%1${'$'}d item","other":"%1${'$'}d items"}}""")
+                }
+            }
+            val sdk = sdk(server)
+            val resourceId = context.resources.getIdentifier("audit_quantity", "plurals", context.packageName)
+            val counts = listOf(0, 1, 2, 5)
+            for (locale in listOf("en", "ja", "en")) {
+                sdk.setLocale(locale)
+                sdk.preload()
+                assertTrue(sdk.loadState.value.toString(), sdk.loadState.value is LingoraLoadState.Ready)
+                val expected = if (locale == "ja") {
+                    listOf("0個", "1個", "2個", "5個")
+                } else {
+                    listOf("0 items", "1 item", "2 items", "5 items")
+                }
+                assertEquals(expected, counts.map { sdk.tPlural(context.resources, resourceId, it) })
+            }
+        }
+    }
+
     @Test
     fun concurrentTextPluralAndArrayCollectorsShareSuccessfulDownload(): Unit = runBlocking {
         HttpServer().use { server ->

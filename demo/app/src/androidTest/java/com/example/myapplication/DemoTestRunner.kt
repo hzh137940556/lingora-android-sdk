@@ -1,9 +1,10 @@
-// 为设备测试提供无网络的 Application，不依赖真实 Delivery 或其文案。
+// 设备测试默认离线；显式传入地址时连接指定的已发布验收语言包。
 package com.example.myapplication
 
 import android.app.Application
 import android.content.Context
 import androidx.test.runner.AndroidJUnitRunner
+import androidx.test.platform.app.InstrumentationRegistry
 import io.lingora.android.Lingora
 import io.lingora.android.LingoraConfig
 import io.lingora.android.LingoraNamespaces
@@ -16,15 +17,17 @@ class DemoTestRunner : AndroidJUnitRunner() {
         super.newApplication(cl, OfflineDemoApplication::class.java.name, context)
 }
 
-// 固定 SDK 初始语言并禁用网络，测试只读取本次 APK 内置资源。
+// 固定初始语言，默认使用 APK，也支持显式指定验收 Delivery。
 class OfflineDemoApplication : Application() {
-    // 用空 Delivery URL 隔离测试与开发环境服务。
+    // 不读取生产 BuildConfig 地址，只有 instrumentation 参数可启用远端。
     override fun onCreate() {
         super.onCreate()
         Lingora.init(
             context = this,
             config = LingoraConfig(
-                contentDeliveryUrl = "",
+                contentDeliveryUrl = InstrumentationRegistry.getArguments()
+                    .getString("lingoraTestDeliveryUrl").orEmpty(),
+                defaultLanguage = "en-US",
                 appVersionCode = 0,
                 initialLocale = Locale.US,
             ),

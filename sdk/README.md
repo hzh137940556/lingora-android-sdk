@@ -167,6 +167,25 @@ val sharedNotice = lingora.t(
 不重复的资源名。调用时始终
 保留本地 `strings.xml`、`plurals` 和 `string-array`，它们是远端不可用时的 fallback。
 
+### 复数与 Tolgee Android 的行为约定
+
+使用 Android SDK JSON 的结构化复数，例如英语
+`{"items_count":{"one":"%1$d item","other":"%1$d items"}}`，日语
+`{"items_count":{"other":"%1$d個"}}`。平台上的多行是各语言的复数分支；App 按数量选择一行显示。
+
+- `tPlural(resources, id, quantity, *formatArgs)` 自动将 quantity 置于参数首位：
+  `%1$d` 是数量，后续 `%2$s` 等来自 formatArgs，不重复传 quantity。
+- 根据已加载语言包的语言选择 cardinal 类别，英语 1 为 one、0/2/5 为 other，日语均为 other。
+- 保留 Lingora 既有回退：选中类别 → 远端 other → APK。这是与 Tolgee 的明确差异：
+  Tolgee 选中类别缺失时直接回退 APK，本次不修改此行为。
+- 不可用的远端文案仍由 Android `Resources.getQuantityString` 回退；调用方应传入当前语言的 Resources。
+
+对照基线：[Tolgee Kotlin SDK 446d214](https://github.com/tolgee/tolgee-mobile-kotlin-sdk/tree/446d2147fa4377148acaf20fe5ba854df085feab)，
+主要路径为 `TolgeeAndroid.tPlural` 与 `TranslationSprintf.localized/getPluralName`。
+这里对照 Android SDK JSON、参数顺序和类别选择约定，保留上述回退差异；
+不声明完整 ICU formatter 或所有格式化行为等价。
+Lingora 使用 Android ICU，Tolgee 使用 i18n4k CLDR，规则数据版本取决于各自运行环境。
+
 ### Compose 或其他响应式页面
 
 ```kotlin
