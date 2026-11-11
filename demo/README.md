@@ -199,30 +199,14 @@ Content Delivery 使用手工发布：CLI push/pull 成功不会自动刷新该�
 
 ## 6. 英日复数验收
 
-页面沿用 `app/items_count`，同时展示 0、1、2、5，切换语言后自动更新。
-平台上的两行是英语 `one` 与 `other` 分支；日语只有 `other`。
-SDK 按数量选择当前语言的一条结果，自动将 quantity 放在 `%1$d` 参数位置，不重复传入。
-
-验收使用上节的 dev 项目、`develop` 分支和公开 Delivery，字段应与 Demo 的 app/common XML 对应。
-
-```text
-en-US: {count, plural, one {%1$d item} other {%1$d items}}
-ja:    {count, plural, other {%1$d個}}
-```
-
-保存译文后，手工发布 `Android Demo CI Develop` 的当前 develop 内容；确认公开
-`app/en-US.json` 中有 one/other、`app/ja.json` 中有 other，再执行：
+Demo 展示 `items_count` 的 0、1、2、5。以下用例检查已发布分支及英→日→英切换；默认离线测试跳过。
+先在上节的 dev Delivery 手工发布译文，再从 `demo/` 执行：
 
 ```bash
-# 在 demo/ 执行。dev 模式需要个人 GitHub Packages 读取凭据。
 ./gradlew :app:connectedDebugAndroidTest \
   -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.5 \
   '-Pandroid.testInstrumentationRunnerArguments.class=com.example.myapplication.TranslationTestPageTest#publishedEnglishAndJapanesePlurals' \
   -Pandroid.testInstrumentationRunnerArguments.lingoraTestDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1
 ```
 
-该用例先检查已发布语言包包含预期复数分支，再验证英语 → 日语 → 英语的四个数量结果；默认离线测试跳过此用例。
-`lingoraTestDeliveryUrl` 只影响测试 Application，普通 App 使用 BuildConfig 中的 Delivery 地址。
-源码 SDK 联调需显式改用 `-PlingoraSdkMode=local` 并保留同一个 dev Delivery；
-源码联调通过不代表已发布 Maven 包通过，远端下载失败时不能自动回退源码。
-复数回退继续使用“选中类别 → 远端 other → APK”，与 Tolgee 的差异见 SDK 接入文档。
+源码联调将 SDK 模式改为 `local`；该结果不代表 Maven 包验收。
