@@ -210,3 +210,6 @@ Demo 展示 `items_count` 的 0、1、2、5。以下用例检查已发布分支�
 ```
 
 源码联调将 SDK 模式改为 `local`；该结果不代表 Maven 包验收。
+
+参数区可编辑 Name/Time，直接观察 `time_today`、`reorder`、`repeat`、`numeric`；复数区显示 0/1/2/5。
+本机 HTTP 验收仅在 Debug 放行 loopback：先 `adb reverse tcp:<port> tcp:<port>`，构建时通过 `-PlingoraContentDeliveryUrl=http://127.0.0.1:<port>/<path>` 指定地址；Release 策略不变。

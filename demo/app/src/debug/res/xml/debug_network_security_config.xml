@@ -1,0 +1,7 @@
+<!-- 仅为本机验收放行 loopback HTTP，不放行其他明文地址。 -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>127.0.0.1</domain>
+        <domain>localhost</domain>
+    </domain-config>
+</network-security-config>

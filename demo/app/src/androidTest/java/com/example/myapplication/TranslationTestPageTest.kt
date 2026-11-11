@@ -105,6 +105,10 @@ class TranslationTestPageTest {
     fun timeInputUpdatesTranslation() {
         composeRule.onNodeWithText("Time").performScrollTo().performTextReplacement("18:45")
         composeRule.onNodeWithText("18:45 at today").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Name").performScrollTo().performTextReplacement("Bob")
+        composeRule.onNodeWithText("Bob at 18:45").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Bob / Bob").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Bob: 7").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Time").performTextReplacement("50% {0}")
         composeRule.onNodeWithText("50% {0} at today").performScrollTo().assertIsDisplayed()
     }
@@ -122,6 +126,11 @@ class TranslationTestPageTest {
                     composeRule.onAllNodesWithText(expected).fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithText(expected).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText(if (locale == "ja") "18:45：Alice" else "Alice at 18:45")
+                .performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("Alice / Alice").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText(if (locale == "ja") "7：Alice" else "Alice: 7")
+                .performScrollTo().assertIsDisplayed()
         }
     }
 
