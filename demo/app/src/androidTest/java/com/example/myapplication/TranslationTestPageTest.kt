@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.lingora.android.LingoraLoadState
@@ -96,6 +97,31 @@ class TranslationTestPageTest {
             }
         } finally {
             connection.disconnect()
+        }
+    }
+
+    // 用户输入只作为第一个参数替换，输入中的占位符和百分号不二次求值。
+    @Test
+    fun timeInputUpdatesTranslation() {
+        composeRule.onNodeWithText("Time").performScrollTo().performTextReplacement("18:45")
+        composeRule.onNodeWithText("18:45 at today").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Time").performTextReplacement("50% {0}")
+        composeRule.onNodeWithText("50% {0} at today").performScrollTo().assertIsDisplayed()
+    }
+
+    // 使用已发布时间词条验证日语译文和输入变化，避免仅验证 APK 文案。
+    @Test
+    fun publishedTimeParameterChangesWithLocale() {
+        assumeTrue(!InstrumentationRegistry.getArguments().getString("lingoraTestDeliveryUrl").isNullOrBlank())
+        for (locale in listOf("en-US", "ja", "en-US")) {
+            composeRule.runOnUiThread { Lingora.instance.setLocale(locale) }
+            composeRule.onNodeWithText("Time").performScrollTo().performTextReplacement("18:45")
+            val expected = if (locale == "ja") "今日の時刻は18:45です" else "18:45 at today"
+            composeRule.waitUntil(15_000) {
+                Lingora.instance.loadState.value is LingoraLoadState.Ready &&
+                    composeRule.onAllNodesWithText(expected).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText(expected).performScrollTo().assertIsDisplayed()
         }
     }
 

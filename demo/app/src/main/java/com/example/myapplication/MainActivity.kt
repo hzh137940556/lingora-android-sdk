@@ -24,6 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -149,6 +150,7 @@ private fun TranslationTestPage(
         TranslationButton("welcome_name", welcomeName) { selectedTranslation = it }
         TranslationButton("local_notice", localNotice) { selectedTranslation = it }
         TranslationButton("items_count", quantity) { selectedTranslation = it }
+        TimeExample(lingora)
         PluralExamples(lingora)
         TranslationButton("weekdays", weekdays.joinToString()) { selectedTranslation = it }
         TranslationButton("en_month", months.joinToString()) { selectedTranslation = it }
@@ -167,6 +169,22 @@ private fun TranslationTestPage(
                 }
             },
         )
+    }
+}
+
+// 将用户输入作为第一个位置参数，验证翻译模板动态替换。
+@Composable
+private fun TimeExample(lingora: Lingora, modifier: Modifier = Modifier) {
+    var time by remember { mutableStateOf("10:30") }
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = time,
+            onValueChange = { time = it },
+            label = { Text(lingoraStringResource(lingora, R.string.time_input)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(lingoraStringResource(lingora, R.string.time_today, time))
     }
 }
 

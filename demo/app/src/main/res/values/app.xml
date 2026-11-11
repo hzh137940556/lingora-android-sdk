@@ -39,4 +39,6 @@
         <item>November</item>
         <item>December</item>
     </string-array>
+    <string name="time_today">%1$s at today</string>
+    <string name="time_input">Time</string>
 </resources>
