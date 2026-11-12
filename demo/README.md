@@ -150,7 +150,8 @@ lifecycleScope.launch { Lingora.instance.refresh() }
 `make verify` 先运行这些测试，再以 local SDK 模式执行 App 单元测试、Debug 构建和设备测试 APK 编译。
 普通 Demo CI 因此也会检查设备测试能否编译，但不会自动启动设备测试。
 
-设备测试通过 `DemoTestRunner` 使用空 Delivery URL 的测试 Application，不受开发环境文案变化影响。
+设备测试通过 `DemoTestRunner` 默认使用空 Delivery URL，不受开发环境文案变化影响。
+仅显式传入 `lingoraTestDeliveryUrl` 时才启用已发布语言包验收。
 原来的手工日语资源已移除，测试改为验证未提供语言的默认 APK 文案。设备可用时执行：
 
 ```bash
@@ -195,3 +196,20 @@ https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-c
 已录入 `app/welcome` 和 `common/common_notice` 的中日验收译文；其他源词条由 CI push 导入，
 后续在平台补充目标语言翻译。当前非空文件检查不代表全量翻译覆盖。
 Content Delivery 使用手工发布：CLI push/pull 成功不会自动刷新该公开地址。
+
+## 6. 英日复数验收
+
+Demo 展示 `items_count` 的 0、1、2、5。以下用例检查已发布分支及英→日→英切换；默认离线测试跳过。
+先在上节的 dev Delivery 手工发布译文，再从 `demo/` 执行：
+
+```bash
+./gradlew :app:connectedDebugAndroidTest \
+  -PlingoraSdkMode=dev -PlingoraSdkVersion=0.1.5 \
+  '-Pandroid.testInstrumentationRunnerArguments.class=com.example.myapplication.TranslationTestPageTest#publishedEnglishAndJapanesePlurals' \
+  -Pandroid.testInstrumentationRunnerArguments.lingoraTestDeliveryUrl=https://cosly-dev.s3.us-west-2.amazonaws.com/lingora/localstrings/android-demo-ci/develop/v1
+```
+
+源码联调将 SDK 模式改为 `local`；该结果不代表 Maven 包验收。
+
+参数区可编辑 Name/Time，直接观察 `time_today`、`reorder`、`repeat`、`numeric`；复数区显示 0/1/2/5。
+本机 HTTP 验收仅在 Debug 放行 loopback：先 `adb reverse tcp:<port> tcp:<port>`，构建时通过 `-PlingoraContentDeliveryUrl=http://127.0.0.1:<port>/<path>` 指定地址；Release 策略不变。

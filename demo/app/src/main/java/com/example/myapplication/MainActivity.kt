@@ -24,6 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -145,6 +146,8 @@ private fun TranslationTestPage(
         }
         Text(lingoraStringResource(lingora, R.string.tap_key_hint))
         Text(lingoraStringResource(lingora, R.string.namespace_app))
+        TimeExample(lingora)
+        PluralExamples(lingora)
         TranslationButton("welcome", welcome) { selectedTranslation = it }
         TranslationButton("welcome_name", welcomeName) { selectedTranslation = it }
         TranslationButton("local_notice", localNotice) { selectedTranslation = it }
@@ -166,6 +169,50 @@ private fun TranslationTestPage(
                 }
             },
         )
+    }
+}
+
+// 展示可编辑参数及换序、重复引用、数字格式化结果。
+@Composable
+private fun TimeExample(lingora: Lingora, modifier: Modifier = Modifier) {
+    var time by remember { mutableStateOf("10:30") }
+    var name by remember { mutableStateOf("Alice") }
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(lingoraStringResource(lingora, R.string.parameter_examples), style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text(lingoraStringResource(lingora, R.string.name_input)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = time,
+            onValueChange = { time = it },
+            label = { Text(lingoraStringResource(lingora, R.string.time_input)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(lingoraStringResource(lingora, R.string.time_today, time))
+        Text(lingoraStringResource(lingora, R.string.reorder, name, time))
+        Text(lingoraStringResource(lingora, R.string.repeat, name))
+        Text(lingoraStringResource(lingora, R.string.numeric, name, 7))
+    }
+}
+
+// 同时显示多个数量，切换语言或刷新后通过 SDK Flow 更新复数结果。
+@Composable
+private fun PluralExamples(lingora: Lingora, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(lingoraStringResource(lingora, R.string.plural_examples), style = MaterialTheme.typography.titleMedium)
+            listOf(0, 1, 2, 5).forEach { count ->
+                Text(lingoraPluralStringResource(lingora, R.plurals.items_count, count))
+            }
+        }
     }
 }
 
