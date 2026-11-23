@@ -77,7 +77,12 @@ internal class ContentDeliveryLoader(
             return cached?.copy(warning = "Invalid Content Delivery JSON: ${failure.message}")
                 ?: throw failure
         }
-        writeCache(path, response.body)
+        // 落盘失败不影响已解析的网络文档，也不能推进旧缓存的校验器。
+        try {
+            writeCache(path, response.body)
+        } catch (failure: IOException) {
+            return LoadedResource(decoded, LoadedSource.NETWORK, "Cache write failed: ${failure.message}")
+        }
         saveValidators(path, response.etag, response.lastModified)
         return LoadedResource(decoded, LoadedSource.NETWORK)
     }
@@ -90,8 +95,8 @@ internal class ContentDeliveryLoader(
     }
 
     private fun writeCache(path: String, bytes: ByteArray) {
-        check(cacheDirectory.exists() || cacheDirectory.mkdirs()) {
-            "Cannot create Lingora cache directory"
+        if (!cacheDirectory.isDirectory && !cacheDirectory.mkdirs()) {
+            throw IOException("Cannot create Lingora cache directory")
         }
         val atomicFile = AtomicFile(cacheFile(path))
         val stream = atomicFile.startWrite()
