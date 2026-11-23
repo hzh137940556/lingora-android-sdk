@@ -361,6 +361,29 @@ class LingoraRequestsTest {
         }
     }
 
+    // 验证旧文件名会碰撞的路径在离线及 304 时仍返回各自文档。
+    @Test
+    fun collidingPathsKeepIndependentCachedBodies(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val config = LingoraConfig(server.url, System.nanoTime())
+            val paths = listOf("a/b/en.json", "a_b/en.json")
+            server.translationResponse = { request, _ ->
+                Reply(body = """{"title":"${request.path}"}""")
+            }
+            val loader = ContentDeliveryLoader(context, config)
+            paths.forEach { loader.loadTranslations(it).getOrThrow() }
+            for (status in listOf(503, 304)) {
+                server.translationResponse = { _, _ -> Reply(status) }
+                val restarted = ContentDeliveryLoader(context, config)
+                paths.forEach { path ->
+                    val loaded = restarted.loadTranslations(path).getOrThrow()
+                    assertEquals("/$path", loaded.value.text("title"))
+                    assertEquals(LoadedSource.CACHE, loaded.source)
+                }
+            }
+        }
+    }
+
     private fun sdk(
         server: HttpServer,
         version: Long = System.nanoTime(),
