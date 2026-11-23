@@ -9,6 +9,7 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 internal enum class LoadedSource { NETWORK, CACHE }
 
@@ -27,12 +28,16 @@ internal class ContentDeliveryLoader(
     context: Context,
     private val config: LingoraConfig,
 ) {
+    // 与请求 URL 一致地移除末尾斜杠，隔离不同 Delivery 来源的正文和校验器。
+    private val deliveryKey = MessageDigest.getInstance("SHA-256")
+        .digest(config.contentDeliveryUrl.trimEnd('/').toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
     private val cacheDirectory = File(
         context.filesDir,
-        "lingora/localization-cache/${config.appVersionCode}",
+        "lingora/localization-cache/${config.appVersionCode}/$deliveryKey",
     )
     private val metadata = context.getSharedPreferences(
-        "lingora-content-delivery-${config.appVersionCode}",
+        "lingora-content-delivery-${config.appVersionCode}-$deliveryKey",
         Context.MODE_PRIVATE,
     )
 

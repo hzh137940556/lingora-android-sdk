@@ -337,6 +337,29 @@ class LingoraRequestsTest {
         }
     }
 
+    // 验证相同版本和路径不会跨 Delivery 来源复用正文或请求校验器。
+    @Test
+    fun deliveryOriginsKeepIndependentCachesAndValidators(): Unit = runBlocking {
+        HttpServer().use { first ->
+            HttpServer().use { second ->
+                val version = System.nanoTime()
+                val firstConfig = LingoraConfig(first.url, version)
+                ContentDeliveryLoader(context, firstConfig).loadTranslations("app/en.json").getOrThrow()
+                second.translationResponse = { _, _ -> Reply(503) }
+                val secondLoader = ContentDeliveryLoader(context, LingoraConfig(second.url, version))
+                assertTrue(secondLoader.loadTranslations("app/en.json").isFailure)
+                assertTrue(second.translationRequests.last().headers["if-none-match"] == null)
+                assertTrue(second.translationRequests.last().headers["if-modified-since"] == null)
+                second.translationResponse = { _, _ -> Reply(body = """{"audit_text":"Second"}""") }
+                assertEquals("Second", secondLoader.loadTranslations("app/en.json").getOrThrow().value.text("audit_text"))
+                first.translationResponse = { _, _ -> Reply(304) }
+                val original = ContentDeliveryLoader(context, firstConfig.copy(contentDeliveryUrl = first.url + "/"))
+                assertEquals("Remote text", original.loadTranslations("app/en.json").getOrThrow().value.text("audit_text"))
+                assertEquals("\"audit-v1\"", first.translationRequests.last().headers["if-none-match"])
+            }
+        }
+    }
+
     private fun sdk(
         server: HttpServer,
         version: Long = System.nanoTime(),
