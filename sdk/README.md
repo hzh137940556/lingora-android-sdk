@@ -205,6 +205,7 @@ lifecycleScope.launch {
 
 - URL 为空、语言未发布、网络失败或响应无效时，读取 API 返回 APK 资源。
 - 有有效磁盘缓存时可以离线使用缓存。
+- 文档路径使用完整路径摘要生成缓存文件名；升级后旧文件名缓存不复用，首次离线使用 APK fallback。
 - 磁盘缓存与 HTTP 校验器按 Delivery 根地址隔离（忽略末尾斜杠）；升级后无来源标识的旧缓存不复用，首次离线使用 APK fallback。
 - 内存文档、磁盘缓存和失败冷却均按 `(language, namespace)` 隔离；单个 namespace 失败不会清空其他有效文档。
 - 可重试的网络错误会自动重试一次；`refresh()` 可随时手动重试。
