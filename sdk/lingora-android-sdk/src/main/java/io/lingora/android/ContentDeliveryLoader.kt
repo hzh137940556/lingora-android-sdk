@@ -9,6 +9,7 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 internal enum class LoadedSource { NETWORK, CACHE }
 
@@ -99,9 +100,12 @@ internal class ContentDeliveryLoader(
         }
     }
 
+    // 使用完整路径摘要隔离文档，不读取可能发生碰撞的旧文件名。
     private fun cacheFile(path: String): File = File(
         cacheDirectory,
-        path.replace(Regex("[^A-Za-z0-9._-]"), "_"),
+        "path-sha256-" + MessageDigest.getInstance("SHA-256")
+            .digest(path.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) },
     )
 
     private fun saveValidators(path: String, etag: String?, lastModified: String?) {
