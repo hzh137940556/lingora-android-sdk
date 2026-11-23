@@ -337,6 +337,30 @@ class LingoraRequestsTest {
         }
     }
 
+    // 用无法作为目录的 filesDir 确定性模拟落盘失败，验证网络文案可用且不保存校验器。
+    @Test
+    fun cacheWriteFailureStillReturnsNetworkDocument(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val blockedDirectory = java.io.File.createTempFile("lingora-cache", ".blocked", context.cacheDir)
+            try {
+                val blockedContext = object : android.content.ContextWrapper(context) {
+                    // 返回普通文件以模拟无法创建缓存目录。
+                    override fun getFilesDir(): java.io.File = blockedDirectory
+                }
+                val loader = ContentDeliveryLoader(blockedContext, LingoraConfig(server.url, System.nanoTime()))
+                repeat(2) {
+                    val loaded = loader.loadTranslations("app/en.json").getOrThrow()
+                    assertEquals("Remote text", loaded.value.text("audit_text"))
+                    assertEquals(LoadedSource.NETWORK, loaded.source)
+                    assertTrue(loaded.warning?.startsWith("Cache write failed:") == true)
+                }
+                assertTrue(server.translationRequests.all { it.headers["if-none-match"] == null })
+            } finally {
+                blockedDirectory.delete()
+            }
+        }
+    }
+
     private fun sdk(
         server: HttpServer,
         version: Long = System.nanoTime(),
