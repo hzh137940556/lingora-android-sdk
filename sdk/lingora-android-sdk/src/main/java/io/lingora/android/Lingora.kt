@@ -169,7 +169,12 @@ class Lingora private constructor(
         requireConfiguredNamespace(namespace)
         val key = context.resources.getResourceEntryName(resourceId)
         return t(key, *formatArgs, namespace = namespace)
-            ?: context.getString(resourceId, *formatArgs)
+            ?: if (formatArgs.isEmpty()) {
+                // 普通资源中的百分号不是格式占位符，空参数时保留 Android 原文读取语义。
+                context.getString(resourceId)
+            } else {
+                context.getString(resourceId, *formatArgs)
+            }
     }
 
     fun tPlural(
