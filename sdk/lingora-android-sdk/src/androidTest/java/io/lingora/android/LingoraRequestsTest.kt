@@ -173,11 +173,40 @@ class LingoraRequestsTest {
             val load = launch { sdk.preload() }
             await { server.translationRequests.size == 1 }
             load.cancelAndJoin()
+            assertTrue(load.isCancelled)
+            assertEquals(LingoraLoadState.Idle, sdk.loadState.value)
             server.translationResponse = { _, _ -> Reply() }
             withCollectors(sdk) { values ->
                 awaitValues(values, remoteValues)
                 assertEquals(2, server.translationRequests.size)
             }
+        }
+    }
+
+    // 验证 Ready 后刷新被取消会恢复状态，并允许后续刷新正常完成。
+    @Test
+    fun cancellingRefreshRestoresReadyState(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server)
+            sdk.preload()
+            val previous = sdk.loadState.value
+            val releaseResponse = java.util.concurrent.CountDownLatch(1)
+            server.translationResponse = { _, _ ->
+                releaseResponse.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                Reply()
+            }
+            val refresh = launch { sdk.refresh() }
+            await { server.translationRequests.size == 2 }
+            assertEquals(LingoraLoadState.Loading, sdk.loadState.value)
+            refresh.cancel()
+            releaseResponse.countDown()
+            refresh.join()
+            assertTrue(refresh.isCancelled)
+            assertEquals(previous, sdk.loadState.value)
+            assertEquals("Remote text", sdk.t("audit_text"))
+            server.translationResponse = { _, _ -> Reply() }
+            sdk.refresh()
+            assertEquals(LingoraLoadState.Ready("en", LingoraSource.NETWORK), sdk.loadState.value)
         }
     }
 

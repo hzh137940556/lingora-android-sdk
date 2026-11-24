@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Resources
 import android.icu.text.PluralRules
 import android.os.SystemClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -308,78 +309,85 @@ class Lingora private constructor(
             }
             return@withLock
         }
-        if (updateLoadState) _loadState.value = LingoraLoadState.Loading
-        loadManifestOnce(forceRefresh)
-        val resolvedTag = resolveLocale(
-            requested = requestedLocale,
-            available = manifestLocales,
-            defaultLanguage = config.defaultLanguage,
-        )
-        if (resolvedTag == null) {
-            if (updateLoadState) {
-                _loadState.value = LingoraLoadState.UsingApkFallback(
-                    "No published locale matches ${requestedLocale.toLanguageTag()}"
-                )
-            }
-            return@withLock
-        }
-        val failures = mutableListOf<String>()
-        var changed = false
-        namespaces.all.forEach { namespace ->
-            val key = documentKey(resolvedTag, namespace)
-            if (!forceRefresh && loadedDocuments.containsKey(key)) return@forEach
-            if (!forceRefresh) {
-                failedLoads[key]?.takeIf {
-                    SystemClock.elapsedRealtime() < it.retryAfter
-                }?.let {
-                    failures += "$namespace: ${it.reason}"
-                    return@forEach
-                }
-            }
-            val path = translationPath(namespace, resolvedTag)
-            var result = loader.loadTranslations(path)
-            if ((result.exceptionOrNull() as? ContentDeliveryRequestException)?.retryable == true) {
-                // Keep the lock through the bounded retry so collectors cannot retry the same file.
-                delay(LOAD_RETRY_DELAY_MILLIS)
-                result = loader.loadTranslations(path)
-            }
-            result.fold(
-                onSuccess = { loaded ->
-                    failedLoads.remove(key)
-                    val source = when (loaded.source) {
-                        LoadedSource.NETWORK -> LingoraSource.NETWORK
-                        LoadedSource.CACHE -> LingoraSource.CACHE
-                    }
-                    loadedDocuments = loadedDocuments + (
-                        key to LoadedDocument(resolvedTag, loaded.value, source)
-                    )
-                    changed = true
-                },
-                onFailure = { failure ->
-                    val reason = failure.message ?: "Translations could not be loaded"
-                    failedLoads[key] = FailedLoad(
-                        reason,
-                        SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS,
-                    )
-                    failures += "$namespace: $reason"
-                },
+        val previousLoadState = _loadState.value
+        try {
+            if (updateLoadState) _loadState.value = LingoraLoadState.Loading
+            loadManifestOnce(forceRefresh)
+            val resolvedTag = resolveLocale(
+                requested = requestedLocale,
+                available = manifestLocales,
+                defaultLanguage = config.defaultLanguage,
             )
-        }
-        if (changed) _changeVersion.value += 1
-        if (updateLoadState) {
-            val current = currentDocuments(resolvedTag)
-            _loadState.value = if (current.isNotEmpty()) {
-                val source = if (current.any { it.source == LingoraSource.NETWORK }) {
-                    LingoraSource.NETWORK
-                } else {
-                    LingoraSource.CACHE
+            if (resolvedTag == null) {
+                if (updateLoadState) {
+                    _loadState.value = LingoraLoadState.UsingApkFallback(
+                        "No published locale matches ${requestedLocale.toLanguageTag()}"
+                    )
                 }
-                LingoraLoadState.Ready(resolvedTag, source)
-            } else {
-                LingoraLoadState.UsingApkFallback(
-                    failures.firstOrNull() ?: "Translations could not be loaded"
+                return@withLock
+            }
+            val failures = mutableListOf<String>()
+            var changed = false
+            namespaces.all.forEach { namespace ->
+                val key = documentKey(resolvedTag, namespace)
+                if (!forceRefresh && loadedDocuments.containsKey(key)) return@forEach
+                if (!forceRefresh) {
+                    failedLoads[key]?.takeIf {
+                        SystemClock.elapsedRealtime() < it.retryAfter
+                    }?.let {
+                        failures += "$namespace: ${it.reason}"
+                        return@forEach
+                    }
+                }
+                val path = translationPath(namespace, resolvedTag)
+                var result = loader.loadTranslations(path)
+                if ((result.exceptionOrNull() as? ContentDeliveryRequestException)?.retryable == true) {
+                    // Keep the lock through the bounded retry so collectors cannot retry the same file.
+                    delay(LOAD_RETRY_DELAY_MILLIS)
+                    result = loader.loadTranslations(path)
+                }
+                result.fold(
+                    onSuccess = { loaded ->
+                        failedLoads.remove(key)
+                        val source = when (loaded.source) {
+                            LoadedSource.NETWORK -> LingoraSource.NETWORK
+                            LoadedSource.CACHE -> LingoraSource.CACHE
+                        }
+                        loadedDocuments = loadedDocuments + (
+                            key to LoadedDocument(resolvedTag, loaded.value, source)
+                        )
+                        changed = true
+                    },
+                    onFailure = { failure ->
+                        val reason = failure.message ?: "Translations could not be loaded"
+                        failedLoads[key] = FailedLoad(
+                            reason,
+                            SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS,
+                        )
+                        failures += "$namespace: $reason"
+                    },
                 )
             }
+            if (changed) _changeVersion.value += 1
+            if (updateLoadState) {
+                val current = currentDocuments(resolvedTag)
+                _loadState.value = if (current.isNotEmpty()) {
+                    val source = if (current.any { it.source == LingoraSource.NETWORK }) {
+                        LingoraSource.NETWORK
+                    } else {
+                        LingoraSource.CACHE
+                    }
+                    LingoraLoadState.Ready(resolvedTag, source)
+                } else {
+                    LingoraLoadState.UsingApkFallback(
+                        failures.firstOrNull() ?: "Translations could not be loaded"
+                    )
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            // 显式加载取消时恢复原状态；取消继续传播，Flow 的隐式加载不改写状态。
+            if (updateLoadState) _loadState.value = previousLoadState
+            throw cancelled
         }
     }
 
