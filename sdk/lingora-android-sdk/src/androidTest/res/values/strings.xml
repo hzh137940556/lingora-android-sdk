@@ -1,4 +1,6 @@
 <resources>
+    <string name="audit_percent" formatted="false">100%</string>
+    <string name="audit_format">Hello, %1$s!</string>
     <string name="audit_text">APK text</string>
     <plurals name="audit_quantity">
         <item quantity="one">%d APK item</item>

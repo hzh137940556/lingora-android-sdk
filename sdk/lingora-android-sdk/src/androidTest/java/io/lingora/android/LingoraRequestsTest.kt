@@ -10,6 +10,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -33,6 +34,22 @@ class LingoraRequestsTest {
     private val commonRemoteValues =
         listOf("Common text", "2 common items", "Common Monday|Common Tuesday")
     private val fallbackValues = listOf("APK text", "2 APK items", "APK Monday|APK Tuesday")
+
+    // 验证无参数 fallback 保留百分号，直接读取及 Flow 均不会触发格式化异常。
+    @Test
+    fun plainPercentFallbackWorksWithoutArguments(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server)
+            val percent = context.resources.getIdentifier("audit_percent", "string", context.packageName)
+            val formatted = context.resources.getIdentifier("audit_format", "string", context.packageName)
+            assertEquals("100%", sdk.t(context, percent))
+            assertEquals("100%", sdk.tFlow(context, percent).first())
+            assertEquals("Hello, Android!", sdk.t(context, formatted, "Android"))
+            sdk.preload()
+            // 已加载文档缺少对应 key 时，仍安全回退到 APK。
+            assertEquals("100%", sdk.t(context, percent))
+        }
+    }
 
     // 验证下载的结构化复数按语言选分支；日语只需 other，且切回英语不会沿用日语。
     @Test
