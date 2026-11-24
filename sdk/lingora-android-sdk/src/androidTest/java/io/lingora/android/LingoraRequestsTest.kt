@@ -51,6 +51,21 @@ class LingoraRequestsTest {
         }
     }
 
+    // 不支持的 ICU plural 通过资源 API 回退 APK，同文档普通 key 仍使用远端。
+    @Test
+    fun unsupportedIcuPluralFallsBackWithoutDiscardingOtherKeys(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.translationResponse = { _, _ -> Reply(body =
+                """{"audit_text":"Remote text","audit_quantity":"{count, plural, =0 {None} other {# items}}"}"""
+            ) }
+            val sdk = sdk(server)
+            sdk.preload()
+            val quantity = context.resources.getIdentifier("audit_quantity", "plurals", context.packageName)
+            assertEquals("2 APK items", sdk.tPlural(context.resources, quantity, 2))
+            assertEquals("Remote text", sdk.t("audit_text"))
+        }
+    }
+
     // 验证下载的结构化复数按语言选分支；日语只需 other，且切回英语不会沿用日语。
     @Test
     fun englishAndJapaneseRemotePluralsFollowLocaleRules(): Unit = runBlocking {

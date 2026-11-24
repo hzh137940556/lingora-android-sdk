@@ -21,6 +21,7 @@ internal class TranslationDocument private constructor(
         (values[key] as? TranslationValue.StringArray)?.values
 
     companion object {
+        private val icuPluralPrefix = Regex("^\\s*\\{[^,{}]+,\\s*plural,")
         private val pluralQuantities = setOf("zero", "one", "two", "few", "many", "other")
 
         fun parse(bytes: ByteArray): TranslationDocument {
@@ -41,9 +42,14 @@ internal class TranslationDocument private constructor(
         ) {
             require(key.isNotBlank()) { "Translation key must not be blank" }
             when (value) {
-                is String -> output[key] = parseIcuPlural(value)
-                    ?.let(TranslationValue::Plural)
-                    ?: TranslationValue.Text(value)
+                is String -> {
+                    if (icuPluralPrefix.containsMatchIn(value)) {
+                        // 不支持的 ICU key 不进入远端文档，让资源 API 回退 APK。
+                        parseIcuPlural(value)?.let { output[key] = TranslationValue.Plural(it) }
+                    } else {
+                        output[key] = TranslationValue.Text(value)
+                    }
+                }
                 is List<*> -> {
                     require(value.all { it is String }) {
                         "Translation array '$key' must contain strings"
@@ -82,7 +88,9 @@ internal class TranslationDocument private constructor(
             val forms = linkedMapOf<String, String>()
             var position = 0
             while (position < body.length) {
-                val match = quantity.find(body, position) ?: break
+                if (body.substring(position).isBlank()) break
+                val match = quantity.find(body, position) ?: return null
+                if (body.substring(position, match.range.first).isNotBlank()) return null
                 var cursor = match.range.last + 1
                 val start = cursor
                 var depth = 1
@@ -94,7 +102,10 @@ internal class TranslationDocument private constructor(
                     cursor += 1
                 }
                 if (depth != 0) return null
-                forms[match.groupValues[1]] = body.substring(start, cursor - 1)
+                val text = body.substring(start, cursor - 1)
+                // 仅接受类别 + sprintf 子集；井号、嵌套语法及 ICU 引号转义不能静默误译。
+                if (text.any { it in "#{}" } || "''" in text) return null
+                if (forms.put(match.groupValues[1], text) != null) return null
                 position = cursor
             }
             return forms.takeIf { "other" in it }
