@@ -215,6 +215,7 @@ lifecycleScope.launch {
 - 可重试的网络错误会自动重试一次；`refresh()` 可随时手动重试。
 - 取消加载会结束对阻塞 HTTP 的等待并异步断开连接；取消后才到达的 HTTP 响应不会提交到文档缓存。
 - 远端数组长度必须与 APK 数组一致，否则使用完整 APK 数组，避免索引错位。
+- 旧 ICU plural 只接受 `zero/one/two/few/many/other` 类别及 sprintf 文案，且必须有 `other`。精确数量、offset、井号替换和嵌套等不支持语法对应的 key 回退 APK，不影响其他有效 key。
 
 SDK 运行时不要求安装 CLI。Demo、CLI 静态资源同步和完整示例见
 [Demo 接入步骤](../demo/README.md)。维护者的发布、审批和仓库配置见

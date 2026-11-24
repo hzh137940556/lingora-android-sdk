@@ -5,6 +5,26 @@ import org.junit.Test
 import java.util.Locale
 
 class TranslationDocumentTest {
+    // 不支持或不完整的 ICU key 不参与翻译，其他有效 key 保持可用。
+    @Test
+    fun unsupportedIcuPluralDoesNotBecomePartialTranslation() {
+        val unsupported = listOf(
+            "{count, plural, =0 {None} other {Items}}",
+            "{count, plural, offset:1 one {One} other {Items}}",
+            "{count, plural, one {One} other {# items}}",
+            "{count, plural, other {{name} items}}",
+            "{count, plural, other {Items} trailing}",
+            "{count, plural, other {Items} other {Duplicate}}",
+            "{count, plural, other {Items}",
+        )
+        unsupported.forEach { value ->
+            val document = TranslationDocument.from(mapOf("bad" to value, "good" to "Hello"))
+            assertEquals(null, document.plural("bad"))
+            assertEquals(null, document.text("bad"))
+            assertEquals("Hello", document.text("good"))
+        }
+    }
+
     @Test
     fun parsesTextPluralArrayAndNestedKeys() {
         val document = TranslationDocument.from(
