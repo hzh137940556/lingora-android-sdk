@@ -309,6 +309,8 @@ class Lingora private constructor(
             }
             return@withLock
         }
+        val previousDocuments = loadedDocuments
+        val previousManifest = manifestLocales
         val previousLoadState = _loadState.value
         try {
             if (updateLoadState) _loadState.value = LingoraLoadState.Loading
@@ -327,7 +329,6 @@ class Lingora private constructor(
                 return@withLock
             }
             val failures = mutableListOf<String>()
-            var changed = false
             namespaces.all.forEach { namespace ->
                 val key = documentKey(resolvedTag, namespace)
                 if (!forceRefresh && loadedDocuments.containsKey(key)) return@forEach
@@ -356,7 +357,6 @@ class Lingora private constructor(
                         loadedDocuments = loadedDocuments + (
                             key to LoadedDocument(resolvedTag, loaded.value, source)
                         )
-                        changed = true
                     },
                     onFailure = { failure ->
                         val reason = failure.message ?: "Translations could not be loaded"
@@ -368,7 +368,6 @@ class Lingora private constructor(
                     },
                 )
             }
-            if (changed) _changeVersion.value += 1
             if (updateLoadState) {
                 val current = currentDocuments(resolvedTag)
                 _loadState.value = if (current.isNotEmpty()) {
@@ -388,6 +387,11 @@ class Lingora private constructor(
             // 显式加载取消时恢复原状态；取消继续传播，Flow 的隐式加载不改写状态。
             if (updateLoadState) _loadState.value = previousLoadState
             throw cancelled
+        } finally {
+            // 提前返回或取消也必须通知已经生效的文档和语言解析变化。
+            if (loadedDocuments !== previousDocuments || manifestLocales != previousManifest) {
+                _changeVersion.value += 1
+            }
         }
     }
 

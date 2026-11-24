@@ -338,6 +338,48 @@ class LingoraRequestsTest {
         }
     }
 
+    // manifest 移除当前语言时，即使没有下载新文档也通知已有订阅回退 APK。
+    @Test
+    fun manifestRemovalUpdatesExistingCollectors(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server, defaultLanguage = null)
+            sdk.preload()
+            withCollectors(sdk) { values ->
+                awaitValues(values, remoteValues)
+                server.manifestResponse = { Reply(body = """{"locales":["ja"]}""") }
+                sdk.refresh()
+                awaitValues(values, fallbackValues)
+                assertTrue(sdk.t("audit_text") == null)
+            }
+        }
+    }
+
+    // 部分 namespace 更新后取消仍通知订阅，避免内存已更新而页面停留旧文案。
+    @Test
+    fun partialRefreshCancellationNotifiesCollectors(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server, namespaces = LingoraNamespaces(additionalNamespaces = setOf("common")))
+            sdk.preload()
+            withCollectors(sdk) { values ->
+                awaitValues(values, remoteValues)
+                val release = java.util.concurrent.CountDownLatch(1)
+                server.translationResponse = { request, _ ->
+                    if (request.path.startsWith("/common/")) {
+                        release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                    Reply(body = COMMON_TRANSLATIONS)
+                }
+                val refresh = launch { sdk.refresh() }
+                await { server.translationRequests.size == 4 }
+                refresh.cancel()
+                release.countDown()
+                refresh.join()
+                awaitValues(values, commonRemoteValues)
+                assertTrue(refresh.isCancelled)
+            }
+        }
+    }
+
     @Test
     fun namespaceResourcePluralArrayAndFlowOverloadsUseRequestedDocument(): Unit = runBlocking {
         HttpServer().use { server ->
@@ -457,6 +499,8 @@ class LingoraRequestsTest {
         server: HttpServer,
         version: Long = System.nanoTime(),
         namespaces: LingoraNamespaces = LingoraNamespaces(),
+        defaultLanguage: String? = "en",
+        initialLocale: Locale = Locale.ENGLISH,
     ): Lingora {
         // A separate instance per test; do not alter the process-wide application singleton.
         val constructor = Lingora::class.java.getDeclaredConstructor(
@@ -470,8 +514,8 @@ class LingoraRequestsTest {
             LingoraConfig(
                 contentDeliveryUrl = server.url,
                 appVersionCode = version,
-                defaultLanguage = "en",
-                initialLocale = Locale.ENGLISH,
+                defaultLanguage = defaultLanguage,
+                initialLocale = initialLocale,
                 connectTimeoutMillis = 1_000,
                 readTimeoutMillis = 1_000,
             ),
@@ -533,6 +577,7 @@ class LingoraRequestsTest {
         val translationRequests: List<Request> get() = requests.filter { it.path != "/manifest.json" }
         private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${socket.localPort}"
+        @Volatile var manifestResponse: () -> Reply = { Reply(body = """{"locales":["en","ja"]}""") }
         @Volatile var translationResponse: (Request, Int) -> Reply = { _, _ -> Reply() }
         private val worker = thread(name = "lingora-http-test") {
             while (!socket.isClosed) {
@@ -550,7 +595,7 @@ class LingoraRequestsTest {
                         val request = Request(path, headers)
                         requests.add(request)
                         val reply = if (path == "/manifest.json") {
-                            Reply(body = """{"locales":["en","ja"]}""")
+                            manifestResponse()
                         } else translationResponse(request, translationRequests.size)
                         val body = if (reply.status == 200) reply.body.toByteArray() else byteArrayOf()
                         val header = "HTTP/1.1 ${reply.status} Test\r\nContent-Type: application/json\r\n" +
