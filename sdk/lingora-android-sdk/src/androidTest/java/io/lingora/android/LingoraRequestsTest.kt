@@ -147,6 +147,43 @@ class LingoraRequestsTest {
         }
     }
 
+    // 首次 manifest 失败后共享冷却，到期重新发现语言回退；refresh 可直接绕过。
+    @Test
+    fun manifestFailureRecoversAfterCooldown(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(503) }
+            server.translationResponse = { request, _ ->
+                if (request.path == "/app/en.json") Reply() else Reply(404)
+            }
+            val sdk = sdk(server, initialLocale = Locale.US)
+            sdk.preload()
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            sdk.preload()
+            assertEquals(1, server.requests.count { it.path == "/manifest.json" })
+            delay(5_100)
+            sdk.preload()
+            assertEquals(listOf("en"), sdk.availableLocaleTags.value)
+            assertEquals("Remote text", sdk.t("audit_text"))
+            assertEquals(2, server.requests.count { it.path == "/manifest.json" })
+            sdk.refresh()
+            assertEquals(3, server.requests.count { it.path == "/manifest.json" })
+        }
+    }
+
+    // 显式刷新不等待 manifest 失败冷却结束。
+    @Test
+    fun refreshBypassesManifestFailureCooldown(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(503) }
+            val sdk = sdk(server)
+            sdk.preload()
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            sdk.refresh()
+            assertEquals(listOf("en"), sdk.availableLocaleTags.value)
+            assertEquals(2, server.requests.count { it.path == "/manifest.json" })
+        }
+    }
+
     @Test
     fun aLaterCollectorCanRecoverAfterTheFailureCooldown(): Unit = runBlocking {
         HttpServer().use { server ->
@@ -457,6 +494,8 @@ class LingoraRequestsTest {
         server: HttpServer,
         version: Long = System.nanoTime(),
         namespaces: LingoraNamespaces = LingoraNamespaces(),
+        defaultLanguage: String? = "en",
+        initialLocale: Locale = Locale.ENGLISH,
     ): Lingora {
         // A separate instance per test; do not alter the process-wide application singleton.
         val constructor = Lingora::class.java.getDeclaredConstructor(
@@ -470,8 +509,8 @@ class LingoraRequestsTest {
             LingoraConfig(
                 contentDeliveryUrl = server.url,
                 appVersionCode = version,
-                defaultLanguage = "en",
-                initialLocale = Locale.ENGLISH,
+                defaultLanguage = defaultLanguage,
+                initialLocale = initialLocale,
                 connectTimeoutMillis = 1_000,
                 readTimeoutMillis = 1_000,
             ),
@@ -533,6 +572,7 @@ class LingoraRequestsTest {
         val translationRequests: List<Request> get() = requests.filter { it.path != "/manifest.json" }
         private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${socket.localPort}"
+        @Volatile var manifestResponse: () -> Reply = { Reply(body = """{"locales":["en","ja"]}""") }
         @Volatile var translationResponse: (Request, Int) -> Reply = { _, _ -> Reply() }
         private val worker = thread(name = "lingora-http-test") {
             while (!socket.isClosed) {
@@ -550,7 +590,7 @@ class LingoraRequestsTest {
                         val request = Request(path, headers)
                         requests.add(request)
                         val reply = if (path == "/manifest.json") {
-                            Reply(body = """{"locales":["en","ja"]}""")
+                            manifestResponse()
                         } else translationResponse(request, translationRequests.size)
                         val body = if (reply.status == 200) reply.body.toByteArray() else byteArrayOf()
                         val header = "HTTP/1.1 ${reply.status} Test\r\nContent-Type: application/json\r\n" +
