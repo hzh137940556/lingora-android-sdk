@@ -3,6 +3,9 @@ package io.lingora.android
 import android.content.Context
 import android.util.AtomicFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -128,7 +131,8 @@ internal class ContentDeliveryLoader(
         }.apply()
     }
 
-    private fun request(path: String, conditional: Boolean): DownloadResponse {
+    // 将阻塞请求交给 IO worker；取消立即结束等待并异步断开连接。
+    private suspend fun request(path: String, conditional: Boolean): DownloadResponse {
         if (config.contentDeliveryUrl.isBlank()) {
             return DownloadResponse.Failure("Content Delivery URL is not configured")
         }
@@ -150,6 +154,27 @@ internal class ContentDeliveryLoader(
                 }
             }
         }
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation {
+                // disconnect 在部分实现中会等待 IO，不能阻塞取消调用者。
+                Dispatchers.IO.dispatch(continuation.context, Runnable { connection.disconnect() })
+            }
+            Dispatchers.IO.dispatch(continuation.context, Runnable {
+                if (continuation.isActive) {
+                    try {
+                        continuation.resume(executeRequest(connection))
+                    } catch (failure: Exception) {
+                        continuation.resumeWithException(failure)
+                    }
+                } else {
+                    connection.disconnect()
+                }
+            })
+        }
+    }
+
+    // 在 worker 内完成 HTTP 读取并始终释放连接；取消后结果由 continuation 丢弃。
+    private fun executeRequest(connection: HttpURLConnection): DownloadResponse {
         return try {
             when (val status = connection.responseCode) {
                 HttpURLConnection.HTTP_OK -> DownloadResponse.Success(

@@ -51,6 +51,21 @@ class LingoraRequestsTest {
         }
     }
 
+    // 不支持的 ICU plural 通过资源 API 回退 APK，同文档普通 key 仍使用远端。
+    @Test
+    fun unsupportedIcuPluralFallsBackWithoutDiscardingOtherKeys(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.translationResponse = { _, _ -> Reply(body =
+                """{"audit_text":"Remote text","audit_quantity":"{count, plural, =0 {None} other {# items}}"}"""
+            ) }
+            val sdk = sdk(server)
+            sdk.preload()
+            val quantity = context.resources.getIdentifier("audit_quantity", "plurals", context.packageName)
+            assertEquals("2 APK items", sdk.tPlural(context.resources, quantity, 2))
+            assertEquals("Remote text", sdk.t("audit_text"))
+        }
+    }
+
     // 验证下载的结构化复数按语言选分支；日语只需 other，且切回英语不会沿用日语。
     @Test
     fun englishAndJapaneseRemotePluralsFollowLocaleRules(): Unit = runBlocking {
@@ -147,6 +162,43 @@ class LingoraRequestsTest {
         }
     }
 
+    // 首次 manifest 失败后共享冷却，到期重新发现语言回退；refresh 可直接绕过。
+    @Test
+    fun manifestFailureRecoversAfterCooldown(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(503) }
+            server.translationResponse = { request, _ ->
+                if (request.path == "/app/en.json") Reply() else Reply(404)
+            }
+            val sdk = sdk(server, initialLocale = Locale.US)
+            sdk.preload()
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            sdk.preload()
+            assertEquals(1, server.requests.count { it.path == "/manifest.json" })
+            delay(5_100)
+            sdk.preload()
+            assertEquals(listOf("en"), sdk.availableLocaleTags.value)
+            assertEquals("Remote text", sdk.t("audit_text"))
+            assertEquals(2, server.requests.count { it.path == "/manifest.json" })
+            sdk.refresh()
+            assertEquals(3, server.requests.count { it.path == "/manifest.json" })
+        }
+    }
+
+    // 显式刷新不等待 manifest 失败冷却结束。
+    @Test
+    fun refreshBypassesManifestFailureCooldown(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(503) }
+            val sdk = sdk(server)
+            sdk.preload()
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            sdk.refresh()
+            assertEquals(listOf("en"), sdk.availableLocaleTags.value)
+            assertEquals(2, server.requests.count { it.path == "/manifest.json" })
+        }
+    }
+
     @Test
     fun aLaterCollectorCanRecoverAfterTheFailureCooldown(): Unit = runBlocking {
         HttpServer().use { server ->
@@ -161,6 +213,34 @@ class LingoraRequestsTest {
             withCollectors(sdk) { values ->
                 awaitValues(values, remoteValues)
                 assertEquals(3, server.translationRequests.size)
+            }
+        }
+    }
+
+    // 服务器不返回响应时取消必须及时结束，不依赖 readTimeout 或服务器主动释放。
+    @Test
+    fun cancellingStalledHttpReturnsBeforeServerResponse(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val release = java.util.concurrent.CountDownLatch(1)
+            try {
+                server.translationResponse = { _, _ ->
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                    Reply()
+                }
+                val loader = ContentDeliveryLoader(context, LingoraConfig(
+                    server.url, System.nanoTime(), readTimeoutMillis = 10_000,
+                ))
+                val request = launch { loader.loadTranslations("app/en.json") }
+                await { server.translationRequests.size == 1 }
+                withTimeout(1_000) { request.cancelAndJoin() }
+                assertTrue(request.isCancelled)
+                release.countDown()
+                server.translationResponse = { _, _ -> Reply() }
+                val next = loader.loadTranslations("app/en.json").getOrThrow()
+                assertEquals("Remote text", next.value.text("audit_text"))
+                assertTrue(server.translationRequests.last().headers["if-none-match"] == null)
+            } finally {
+                release.countDown()
             }
         }
     }
@@ -384,6 +464,48 @@ class LingoraRequestsTest {
         }
     }
 
+    // manifest 移除当前语言时，即使没有下载新文档也通知已有订阅回退 APK。
+    @Test
+    fun manifestRemovalUpdatesExistingCollectors(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server, defaultLanguage = null)
+            sdk.preload()
+            withCollectors(sdk) { values ->
+                awaitValues(values, remoteValues)
+                server.manifestResponse = { Reply(body = """{"locales":["ja"]}""") }
+                sdk.refresh()
+                awaitValues(values, fallbackValues)
+                assertTrue(sdk.t("audit_text") == null)
+            }
+        }
+    }
+
+    // 部分 namespace 更新后取消仍通知订阅，避免内存已更新而页面停留旧文案。
+    @Test
+    fun partialRefreshCancellationNotifiesCollectors(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server, namespaces = LingoraNamespaces(additionalNamespaces = setOf("common")))
+            sdk.preload()
+            withCollectors(sdk) { values ->
+                awaitValues(values, remoteValues)
+                val release = java.util.concurrent.CountDownLatch(1)
+                server.translationResponse = { request, _ ->
+                    if (request.path.startsWith("/common/")) {
+                        release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                    Reply(body = COMMON_TRANSLATIONS)
+                }
+                val refresh = launch { sdk.refresh() }
+                await { server.translationRequests.size == 4 }
+                refresh.cancel()
+                release.countDown()
+                refresh.join()
+                awaitValues(values, commonRemoteValues)
+                assertTrue(refresh.isCancelled)
+            }
+        }
+    }
+
     @Test
     fun namespaceResourcePluralArrayAndFlowOverloadsUseRequestedDocument(): Unit = runBlocking {
         HttpServer().use { server ->
@@ -503,6 +625,8 @@ class LingoraRequestsTest {
         server: HttpServer,
         version: Long = System.nanoTime(),
         namespaces: LingoraNamespaces = LingoraNamespaces(),
+        defaultLanguage: String? = "en",
+        initialLocale: Locale = Locale.ENGLISH,
     ): Lingora {
         // A separate instance per test; do not alter the process-wide application singleton.
         val constructor = Lingora::class.java.getDeclaredConstructor(
@@ -516,8 +640,8 @@ class LingoraRequestsTest {
             LingoraConfig(
                 contentDeliveryUrl = server.url,
                 appVersionCode = version,
-                defaultLanguage = "en",
-                initialLocale = Locale.ENGLISH,
+                defaultLanguage = defaultLanguage,
+                initialLocale = initialLocale,
                 connectTimeoutMillis = 1_000,
                 readTimeoutMillis = 1_000,
             ),
@@ -579,6 +703,7 @@ class LingoraRequestsTest {
         val translationRequests: List<Request> get() = requests.filter { it.path != "/manifest.json" }
         private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${socket.localPort}"
+        @Volatile var manifestResponse: () -> Reply = { Reply(body = """{"locales":["en","ja"]}""") }
         @Volatile var translationResponse: (Request, Int) -> Reply = { _, _ -> Reply() }
         private val worker = thread(name = "lingora-http-test") {
             while (!socket.isClosed) {
@@ -596,7 +721,7 @@ class LingoraRequestsTest {
                         val request = Request(path, headers)
                         requests.add(request)
                         val reply = if (path == "/manifest.json") {
-                            Reply(body = """{"locales":["en","ja"]}""")
+                            manifestResponse()
                         } else translationResponse(request, translationRequests.size)
                         val body = if (reply.status == 200) reply.body.toByteArray() else byteArrayOf()
                         val header = "HTTP/1.1 ${reply.status} Test\r\nContent-Type: application/json\r\n" +

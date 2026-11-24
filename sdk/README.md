@@ -198,7 +198,9 @@ lifecycleScope.launch {
 - `setLocale()` 切换当前语言，相关 Flow 会重新加载。
 - `preload()` 按当前语言预加载默认和全部附加 namespace。
 - `refresh()` 跳过当前内存命中和失败冷却，主动检查全部 namespace 的最新内容。
+- manifest 或部分 namespace 更新已经生效时，即使刷新提前返回或被取消，也会通知已有文案 Flow。
 - `availableLocaleTags` 提供 manifest 中的语言列表。
+- manifest 加载失败后共享 5 秒冷却；后续加载在冷却结束后重试，`refresh()` 可立即重试。成功加载后继续使用现有缓存策略。
 - `loadState` 提供 `Idle`、`Loading`、`Ready` 和 `UsingApkFallback` 状态；`preload()` / `refresh()` 被取消时恢复加载前状态，并向调用方传播取消。
 - `loadState` 跟随当前语言，Flow 自动加载也会更新状态；切换语言时重置为 `Idle`，旧语言请求不能覆盖当前语言状态。
 
@@ -212,7 +214,9 @@ lifecycleScope.launch {
 - 缓存目录创建或写入发生 I/O 错误时，当前进程仍使用有效网络文档；不更新缓存校验器，下次启动可能需要重新下载。
 - 内存文档、磁盘缓存和失败冷却均按 `(language, namespace)` 隔离；单个 namespace 失败不会清空其他有效文档。
 - 可重试的网络错误会自动重试一次；`refresh()` 可随时手动重试。
+- 取消加载会结束对阻塞 HTTP 的等待并异步断开连接；取消后才到达的 HTTP 响应不会提交到文档缓存。
 - 远端数组长度必须与 APK 数组一致，否则使用完整 APK 数组，避免索引错位。
+- 旧 ICU plural 只接受 `zero/one/two/few/many/other` 类别及 sprintf 文案，且必须有 `other`。精确数量、offset、井号替换和嵌套等不支持语法对应的 key 回退 APK，不影响其他有效 key。
 
 SDK 运行时不要求安装 CLI。Demo、CLI 静态资源同步和完整示例见
 [Demo 接入步骤](../demo/README.md)。维护者的发布、审批和仓库配置见

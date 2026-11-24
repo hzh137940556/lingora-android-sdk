@@ -112,6 +112,7 @@ class Lingora private constructor(
     private val _loadState = MutableStateFlow<LingoraLoadState>(LingoraLoadState.Idle)
     private val _changeVersion = MutableStateFlow(0L)
     private var manifestAttempted = false
+    private var manifestRetryAfter = 0L
     // Accessed under loadMutex: collectors share each language/namespace failure cooldown.
     private val failedLoads = mutableMapOf<DocumentKey, FailedLoad>()
 
@@ -311,6 +312,8 @@ class Lingora private constructor(
             }
             return@withLock
         }
+        val previousDocuments = loadedDocuments
+        val previousManifest = manifestLocales
         val previousLoadState = _loadState.value
         try {
             if (requestedLocale == _locale.value) _loadState.value = LingoraLoadState.Loading
@@ -329,7 +332,6 @@ class Lingora private constructor(
                 return@withLock
             }
             val failures = mutableListOf<String>()
-            var changed = false
             namespaces.all.forEach { namespace ->
                 val key = documentKey(resolvedTag, namespace)
                 if (!forceRefresh && loadedDocuments.containsKey(key)) return@forEach
@@ -358,7 +360,6 @@ class Lingora private constructor(
                         loadedDocuments = loadedDocuments + (
                             key to LoadedDocument(resolvedTag, loaded.value, source)
                         )
-                        changed = true
                     },
                     onFailure = { failure ->
                         val reason = failure.message ?: "Translations could not be loaded"
@@ -370,7 +371,6 @@ class Lingora private constructor(
                     },
                 )
             }
-            if (changed) _changeVersion.value += 1
             if (requestedLocale == _locale.value) {
                 val current = currentDocuments(resolvedTag)
                 _loadState.value = if (current.isNotEmpty()) {
@@ -390,13 +390,22 @@ class Lingora private constructor(
             // 只恢复仍对应当前语言的状态，旧语言请求不能覆盖新语言状态。
             if (requestedLocale == _locale.value) _loadState.value = previousLoadState
             throw cancelled
+        } finally {
+            // 提前返回或取消也必须通知已经生效的文档和语言解析变化。
+            if (loadedDocuments !== previousDocuments || manifestLocales != previousManifest) {
+                _changeVersion.value += 1
+            }
         }
     }
 
     private suspend fun loadManifestOnce(forceRefresh: Boolean) {
-        if (manifestAttempted && !forceRefresh) return
+        if (!forceRefresh && (manifestAttempted || SystemClock.elapsedRealtime() < manifestRetryAfter)) return
         val result = loader.loadManifest()
-        manifestAttempted = true
+        // 仅成功后停止自动加载；失败由所有调用者共享冷却，refresh 可绕过。
+        manifestAttempted = result.isSuccess
+        manifestRetryAfter = if (result.isFailure) {
+            SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS
+        } else 0L
         result.onSuccess { result ->
             manifestLocales = result.value.locales
             _availableLocaleTags.value = result.value.locales
