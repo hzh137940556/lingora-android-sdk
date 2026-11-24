@@ -200,8 +200,10 @@ lifecycleScope.launch {
 - `refresh()` 跳过当前内存命中和失败冷却，主动检查全部 namespace 的最新内容。
 - `availableLocaleTags` 提供 manifest 中的语言列表。
 - `loadState` 提供 `Idle`、`Loading`、`Ready` 和 `UsingApkFallback` 状态；`preload()` / `refresh()` 被取消时恢复加载前状态，并向调用方传播取消。
+- `loadState` 跟随当前语言，Flow 自动加载也会更新状态；切换语言时重置为 `Idle`，旧语言请求不能覆盖当前语言状态。
 
 ## 5. 回退与缓存
+
 
 - URL 为空、语言未发布、网络失败或响应无效时，读取 API 返回 APK 资源。
 - 有有效磁盘缓存时可以离线使用缓存。

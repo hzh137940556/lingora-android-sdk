@@ -210,6 +210,52 @@ class LingoraRequestsTest {
         }
     }
 
+    // Flow 独立加载应发布新语言的 Ready，失败时不能继续显示旧语言 Ready。
+    @Test
+    fun flowLoadsPublishCurrentLocaleState(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server)
+            sdk.preload()
+            server.translationResponse = { request, _ ->
+                if (request.path == "/app/ja.json") Reply(404) else Reply()
+            }
+            withCollectors(sdk) { values ->
+                awaitValues(values, remoteValues)
+                sdk.setLocale("ja")
+                await { sdk.loadState.value is LingoraLoadState.UsingApkFallback }
+                awaitValues(values, fallbackValues)
+                server.translationResponse = { _, _ -> Reply() }
+                sdk.refresh()
+                await { sdk.loadState.value == LingoraLoadState.Ready("ja", LingoraSource.NETWORK) }
+                sdk.setLocale("en")
+                await { sdk.loadState.value == LingoraLoadState.Ready("en", LingoraSource.NETWORK) }
+            }
+        }
+    }
+
+    // 旧语言显式加载完成后不能覆盖 setLocale 已重置的新语言状态。
+    @Test
+    fun oldLocaleCompletionCannotPublishReadyForNewLocale(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server)
+            val release = java.util.concurrent.CountDownLatch(1)
+            server.translationResponse = { _, _ ->
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                Reply()
+            }
+            val preload = launch { sdk.preload() }
+            await { server.translationRequests.size == 1 }
+            sdk.setLocale("ja")
+            release.countDown()
+            preload.join()
+            assertEquals(LingoraLoadState.Idle, sdk.loadState.value)
+            server.translationResponse = { _, _ -> Reply() }
+            withCollectors(sdk) {
+                await { sdk.loadState.value == LingoraLoadState.Ready("ja", LingoraSource.NETWORK) }
+            }
+        }
+    }
+
     @Test
     fun failureForOneLanguageDoesNotSuppressAnotherLanguage(): Unit = runBlocking {
         HttpServer().use { server ->
