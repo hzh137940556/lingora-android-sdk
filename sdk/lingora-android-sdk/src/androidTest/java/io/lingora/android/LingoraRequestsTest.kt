@@ -202,6 +202,34 @@ class LingoraRequestsTest {
         }
     }
 
+    // 服务器不返回响应时取消必须及时结束，不依赖 readTimeout 或服务器主动释放。
+    @Test
+    fun cancellingStalledHttpReturnsBeforeServerResponse(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val release = java.util.concurrent.CountDownLatch(1)
+            try {
+                server.translationResponse = { _, _ ->
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                    Reply()
+                }
+                val loader = ContentDeliveryLoader(context, LingoraConfig(
+                    server.url, System.nanoTime(), readTimeoutMillis = 10_000,
+                ))
+                val request = launch { loader.loadTranslations("app/en.json") }
+                await { server.translationRequests.size == 1 }
+                withTimeout(1_000) { request.cancelAndJoin() }
+                assertTrue(request.isCancelled)
+                release.countDown()
+                server.translationResponse = { _, _ -> Reply() }
+                val next = loader.loadTranslations("app/en.json").getOrThrow()
+                assertEquals("Remote text", next.value.text("audit_text"))
+                assertTrue(server.translationRequests.last().headers["if-none-match"] == null)
+            } finally {
+                release.countDown()
+            }
+        }
+    }
+
     @Test
     fun cancellingARetryDoesNotCacheFailureOrBlockOtherCallers(): Unit = runBlocking {
         HttpServer().use { server ->
