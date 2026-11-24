@@ -200,6 +200,7 @@ lifecycleScope.launch {
 - `refresh()` 跳过当前内存命中和失败冷却，主动检查全部 namespace 的最新内容。
 - manifest 或部分 namespace 更新已经生效时，即使刷新提前返回或被取消，也会通知已有文案 Flow。
 - `availableLocaleTags` 提供 manifest 中的语言列表。
+- manifest 加载失败后共享 5 秒冷却；后续加载在冷却结束后重试，`refresh()` 可立即重试。成功加载后继续使用现有缓存策略。
 - `loadState` 提供 `Idle`、`Loading`、`Ready` 和 `UsingApkFallback` 状态；`preload()` / `refresh()` 被取消时恢复加载前状态，并向调用方传播取消。
 
 ## 5. 回退与缓存

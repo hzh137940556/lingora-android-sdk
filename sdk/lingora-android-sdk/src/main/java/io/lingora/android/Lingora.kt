@@ -112,6 +112,7 @@ class Lingora private constructor(
     private val _loadState = MutableStateFlow<LingoraLoadState>(LingoraLoadState.Idle)
     private val _changeVersion = MutableStateFlow(0L)
     private var manifestAttempted = false
+    private var manifestRetryAfter = 0L
     // Accessed under loadMutex: collectors share each language/namespace failure cooldown.
     private val failedLoads = mutableMapOf<DocumentKey, FailedLoad>()
 
@@ -396,9 +397,13 @@ class Lingora private constructor(
     }
 
     private suspend fun loadManifestOnce(forceRefresh: Boolean) {
-        if (manifestAttempted && !forceRefresh) return
+        if (!forceRefresh && (manifestAttempted || SystemClock.elapsedRealtime() < manifestRetryAfter)) return
         val result = loader.loadManifest()
-        manifestAttempted = true
+        // 仅成功后停止自动加载；失败由所有调用者共享冷却，refresh 可绕过。
+        manifestAttempted = result.isSuccess
+        manifestRetryAfter = if (result.isFailure) {
+            SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS
+        } else 0L
         result.onSuccess { result ->
             manifestLocales = result.value.locales
             _availableLocaleTags.value = result.value.locales

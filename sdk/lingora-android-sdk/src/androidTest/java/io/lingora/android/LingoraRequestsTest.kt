@@ -147,6 +147,43 @@ class LingoraRequestsTest {
         }
     }
 
+    // 首次 manifest 失败后共享冷却，到期重新发现语言回退；refresh 可直接绕过。
+    @Test
+    fun manifestFailureRecoversAfterCooldown(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(503) }
+            server.translationResponse = { request, _ ->
+                if (request.path == "/app/en.json") Reply() else Reply(404)
+            }
+            val sdk = sdk(server, initialLocale = Locale.US)
+            sdk.preload()
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            sdk.preload()
+            assertEquals(1, server.requests.count { it.path == "/manifest.json" })
+            delay(5_100)
+            sdk.preload()
+            assertEquals(listOf("en"), sdk.availableLocaleTags.value)
+            assertEquals("Remote text", sdk.t("audit_text"))
+            assertEquals(2, server.requests.count { it.path == "/manifest.json" })
+            sdk.refresh()
+            assertEquals(3, server.requests.count { it.path == "/manifest.json" })
+        }
+    }
+
+    // 显式刷新不等待 manifest 失败冷却结束。
+    @Test
+    fun refreshBypassesManifestFailureCooldown(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(503) }
+            val sdk = sdk(server)
+            sdk.preload()
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            sdk.refresh()
+            assertEquals(listOf("en"), sdk.availableLocaleTags.value)
+            assertEquals(2, server.requests.count { it.path == "/manifest.json" })
+        }
+    }
+
     @Test
     fun aLaterCollectorCanRecoverAfterTheFailureCooldown(): Unit = runBlocking {
         HttpServer().use { server ->
