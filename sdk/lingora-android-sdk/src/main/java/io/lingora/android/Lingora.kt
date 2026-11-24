@@ -138,7 +138,10 @@ class Lingora private constructor(
         require(languageTag.isNotBlank()) { "languageTag must not be blank" }
         val locale = Locale.forLanguageTag(languageTag)
         require(locale.language.isNotBlank()) { "Invalid languageTag: $languageTag" }
-        _locale.value = locale
+        if (_locale.value != locale) {
+            _loadState.value = LingoraLoadState.Idle
+            _locale.value = locale
+        }
     }
 
     fun t(key: String, vararg formatArgs: Any): String? {
@@ -245,7 +248,7 @@ class Lingora private constructor(
     ): Flow<String> =
         requestedLocaleFlow().transformLatest { requestedLocale ->
             emit(t(context, resourceId, *formatArgs, namespace = namespace))
-            ensureLoaded(requestedLocale, updateLoadState = false)
+            ensureLoaded(requestedLocale)
             emit(t(context, resourceId, *formatArgs, namespace = namespace))
         }.distinctUntilChanged()
 
@@ -273,7 +276,7 @@ class Lingora private constructor(
         namespace: String,
     ): Flow<String> = requestedLocaleFlow().transformLatest { requestedLocale ->
         emit(tPlural(resources, resourceId, quantity, *formatArgs, namespace = namespace))
-        ensureLoaded(requestedLocale, updateLoadState = false)
+        ensureLoaded(requestedLocale)
         emit(tPlural(resources, resourceId, quantity, *formatArgs, namespace = namespace))
     }.distinctUntilChanged()
 
@@ -290,7 +293,7 @@ class Lingora private constructor(
     ): Flow<List<String>> =
         requestedLocaleFlow().transformLatest { requestedLocale ->
             emit(tArray(resources, resourceId, namespace))
-            ensureLoaded(requestedLocale, updateLoadState = false)
+            ensureLoaded(requestedLocale)
             emit(tArray(resources, resourceId, namespace))
         }.distinctUntilChanged()
 
@@ -300,10 +303,9 @@ class Lingora private constructor(
     private suspend fun ensureLoaded(
         requestedLocale: Locale,
         forceRefresh: Boolean = false,
-        updateLoadState: Boolean = true,
     ) = loadMutex.withLock {
         if (config.contentDeliveryUrl.isBlank()) {
-            if (updateLoadState) {
+            if (requestedLocale == _locale.value) {
                 _loadState.value = LingoraLoadState.UsingApkFallback(
                     "Content Delivery URL is not configured"
                 )
@@ -314,7 +316,7 @@ class Lingora private constructor(
         val previousManifest = manifestLocales
         val previousLoadState = _loadState.value
         try {
-            if (updateLoadState) _loadState.value = LingoraLoadState.Loading
+            if (requestedLocale == _locale.value) _loadState.value = LingoraLoadState.Loading
             loadManifestOnce(forceRefresh)
             val resolvedTag = resolveLocale(
                 requested = requestedLocale,
@@ -322,7 +324,7 @@ class Lingora private constructor(
                 defaultLanguage = config.defaultLanguage,
             )
             if (resolvedTag == null) {
-                if (updateLoadState) {
+                if (requestedLocale == _locale.value) {
                     _loadState.value = LingoraLoadState.UsingApkFallback(
                         "No published locale matches ${requestedLocale.toLanguageTag()}"
                     )
@@ -369,7 +371,7 @@ class Lingora private constructor(
                     },
                 )
             }
-            if (updateLoadState) {
+            if (requestedLocale == _locale.value) {
                 val current = currentDocuments(resolvedTag)
                 _loadState.value = if (current.isNotEmpty()) {
                     val source = if (current.any { it.source == LingoraSource.NETWORK }) {
@@ -385,8 +387,8 @@ class Lingora private constructor(
                 }
             }
         } catch (cancelled: CancellationException) {
-            // 显式加载取消时恢复原状态；取消继续传播，Flow 的隐式加载不改写状态。
-            if (updateLoadState) _loadState.value = previousLoadState
+            // 只恢复仍对应当前语言的状态，旧语言请求不能覆盖新语言状态。
+            if (requestedLocale == _locale.value) _loadState.value = previousLoadState
             throw cancelled
         } finally {
             // 提前返回或取消也必须通知已经生效的文档和语言解析变化。
