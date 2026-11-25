@@ -388,7 +388,21 @@ class Lingora private constructor(
             }
         } catch (cancelled: CancellationException) {
             // 只恢复仍对应当前语言的状态，旧语言请求不能覆盖新语言状态。
-            if (requestedLocale == _locale.value) _loadState.value = previousLoadState
+            if (requestedLocale == _locale.value) {
+                val resolved = resolveLocale(requestedLocale, manifestLocales, config.defaultLanguage)
+                val current = resolved?.let(::currentDocuments).orEmpty()
+                _loadState.value = when {
+                    current.isNotEmpty() -> LingoraLoadState.Ready(
+                        requireNotNull(resolved),
+                        if (current.any { it.source == LingoraSource.NETWORK }) {
+                            LingoraSource.NETWORK
+                        } else LingoraSource.CACHE,
+                    )
+                    previousLoadState is LingoraLoadState.Ready ->
+                        LingoraLoadState.UsingApkFallback("Current locale loading was cancelled")
+                    else -> previousLoadState
+                }
+            }
             throw cancelled
         } finally {
             // 提前返回或取消也必须通知已经生效的文档和语言解析变化。
