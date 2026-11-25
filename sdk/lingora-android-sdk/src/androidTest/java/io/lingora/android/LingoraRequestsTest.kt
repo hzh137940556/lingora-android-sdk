@@ -551,6 +551,32 @@ class LingoraRequestsTest {
         }
     }
 
+    // 非空目录阻止 AtomicFile 完成重命名，失败不能保存新校验器。
+    @Test
+    fun failedCacheCommitDoesNotSaveValidators(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val loader = ContentDeliveryLoader(context, LingoraConfig(server.url, System.nanoTime()))
+            val method = ContentDeliveryLoader::class.java.getDeclaredMethod("cacheFile", String::class.java)
+            method.isAccessible = true
+            val file = method.invoke(loader, "app/en.json") as java.io.File
+            assertTrue(file.mkdirs())
+            java.io.File(file, "blocker").writeText("block rename")
+            try {
+                repeat(2) {
+                    val loaded = loader.loadTranslations("app/en.json").getOrThrow()
+                    assertEquals("Remote text", loaded.value.text("audit_text"))
+                    assertEquals(LoadedSource.NETWORK, loaded.source)
+                    assertTrue(loaded.warning?.startsWith("Cache write failed:") == true)
+                }
+                assertTrue(server.translationRequests.all { it.headers["if-none-match"] == null })
+            } finally {
+                file.deleteRecursively()
+                java.io.File(file.path + ".new").delete()
+                java.io.File(file.path + ".bak").deleteRecursively()
+            }
+        }
+    }
+
     // 用无法作为目录的 filesDir 确定性模拟落盘失败，验证网络文案可用且不保存校验器。
     @Test
     fun cacheWriteFailureStillReturnsNetworkDocument(): Unit = runBlocking {

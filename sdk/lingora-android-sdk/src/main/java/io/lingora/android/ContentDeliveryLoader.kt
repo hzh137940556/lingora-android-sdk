@@ -105,10 +105,16 @@ internal class ContentDeliveryLoader(
         val stream = atomicFile.startWrite()
         try {
             stream.write(bytes)
+            // finishWrite 可能仅记录同步失败，提前显式同步以传播 IOException。
+            stream.fd.sync()
             atomicFile.finishWrite(stream)
         } catch (failure: Exception) {
             atomicFile.failWrite(stream)
             throw failure
+        }
+        // finishWrite 的重命名失败不会抛异常，确认正文后才能推进 HTTP 校验器。
+        if (!atomicFile.openRead().use { it.readBytes() }.contentEquals(bytes)) {
+            throw IOException("Lingora cache commit did not preserve the response body")
         }
     }
 
