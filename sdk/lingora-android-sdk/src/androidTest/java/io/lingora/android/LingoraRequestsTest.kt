@@ -621,6 +621,36 @@ class LingoraRequestsTest {
         }
     }
 
+    // manifest 改变解析语言后取消，不能恢复已失效的旧语言 Ready。
+    @Test
+    fun cancelledRefreshReconcilesChangedManifest(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            val sdk = sdk(server, initialLocale = Locale.JAPANESE)
+            sdk.preload()
+            assertEquals(LingoraLoadState.Ready("en", LingoraSource.NETWORK), sdk.loadState.value)
+            server.manifestResponse = { Reply(body = """{"locales":["en","ja"]}""") }
+            val release = java.util.concurrent.CountDownLatch(1)
+            server.translationResponse = { _, _ ->
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                Reply()
+            }
+            val refresh = launch { sdk.refresh() }
+            try {
+                await { server.translationRequests.any { it.path == "/app/ja.json" } }
+                withTimeout(1_000) { refresh.cancelAndJoin() }
+                assertTrue(sdk.loadState.value is LingoraLoadState.UsingApkFallback)
+                assertEquals(null, sdk.t("audit_text"))
+            } finally {
+                release.countDown()
+                refresh.cancelAndJoin()
+            }
+            server.translationResponse = { _, _ -> Reply() }
+            sdk.refresh()
+            assertEquals(LingoraLoadState.Ready("ja", LingoraSource.NETWORK), sdk.loadState.value)
+        }
+    }
+
     private fun sdk(
         server: HttpServer,
         version: Long = System.nanoTime(),
