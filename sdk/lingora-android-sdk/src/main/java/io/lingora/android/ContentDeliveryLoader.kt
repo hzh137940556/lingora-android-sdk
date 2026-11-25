@@ -91,10 +91,11 @@ internal class ContentDeliveryLoader(
     }
 
     private fun <T> readCached(path: String, decode: (ByteArray) -> T): LoadedResource<T>? {
-        val file = cacheFile(path)
-        if (!file.isFile) return null
-        return runCatching { LoadedResource(decode(file.readBytes()), LoadedSource.CACHE) }
-            .getOrNull()
+        // 由 AtomicFile 恢复中断写入留下的备份，主文件缺失时也必须尝试。
+        return runCatching {
+            val bytes = AtomicFile(cacheFile(path)).openRead().use { it.readBytes() }
+            LoadedResource(decode(bytes), LoadedSource.CACHE)
+        }.getOrNull()
     }
 
     private fun writeCache(path: String, bytes: ByteArray) {

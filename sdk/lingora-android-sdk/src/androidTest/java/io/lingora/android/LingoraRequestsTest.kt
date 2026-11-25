@@ -598,6 +598,36 @@ class LingoraRequestsTest {
         }
     }
 
+    // 模拟旧版 AtomicFile 写入中断，缺失或损坏主文件均应恢复备份。
+    @Test
+    fun interruptedCacheWritesRestoreBackup(): Unit = runBlocking {
+        HttpServer().use { server ->
+            for (missingPrimary in listOf(true, false)) {
+                val config = LingoraConfig(server.url, System.nanoTime())
+                val loader = ContentDeliveryLoader(context, config)
+                val method = ContentDeliveryLoader::class.java.getDeclaredMethod("cacheFile", String::class.java)
+                method.isAccessible = true
+                val file = method.invoke(loader, "app/en.json") as java.io.File
+                val backup = java.io.File(file.path + ".bak")
+                file.parentFile!!.mkdirs()
+                backup.writeText(TRANSLATIONS)
+                if (!missingPrimary) file.writeText("{truncated")
+                server.translationResponse = { _, _ -> Reply(503) }
+                try {
+                    val loaded = ContentDeliveryLoader(context, config)
+                        .loadTranslations("app/en.json").getOrThrow()
+                    assertEquals("Remote text", loaded.value.text("audit_text"))
+                    assertEquals(LoadedSource.CACHE, loaded.source)
+                    assertTrue(file.isFile)
+                    assertTrue(!backup.exists())
+                } finally {
+                    file.delete()
+                    backup.delete()
+                }
+            }
+        }
+    }
+
     // 验证旧文件名会碰撞的路径在离线及 304 时仍返回各自文档。
     @Test
     fun collidingPathsKeepIndependentCachedBodies(): Unit = runBlocking {
