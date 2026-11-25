@@ -483,7 +483,8 @@ class Lingora private constructor(
             localeFallbackTags(requested).forEach { candidate ->
                 byTag[candidate.lowercase()]?.let { return it }
             }
-            return defaultLanguage
+            // 默认语言也沿用服务端 tag，避免大小写敏感路径请求失败。
+            return defaultLanguage?.let { byTag[it.lowercase()] ?: it }
         }
 
         private fun localeFallbackTags(locale: Locale): List<String> = buildList {
