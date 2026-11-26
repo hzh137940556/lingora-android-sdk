@@ -16,11 +16,20 @@ import java.security.MessageDigest
 
 internal enum class LoadedSource { NETWORK, CACHE }
 
+// 正文摘要识别缓存内容，提交序号区分同内容的后续成功写入。
+internal data class CacheVersion(val digest: String, val commit: Long)
+
 internal data class LoadedResource<T>(
     val value: T,
     val source: LoadedSource,
     val warning: String? = null,
+    val cacheVersion: CacheVersion? = null,
+    val supersededCacheVersion: CacheVersion? = null,
 )
+
+// 失败回退只在正文和提交序号都仍匹配已知旧副本时让位于内存文档。
+internal fun LoadedResource<*>.isSupersededBy(version: CacheVersion?): Boolean =
+    source == LoadedSource.CACHE && warning != null && version != null && cacheVersion == version
 
 internal class ContentDeliveryRequestException(
     message: String,
@@ -31,6 +40,9 @@ internal class ContentDeliveryLoader(
     context: Context,
     private val config: LingoraConfig,
 ) {
+    // 同一实例由 Lingora 的加载锁串行调用；提交后立即记录，早于返回调用协程。
+    private val cacheCommits = mutableMapOf<String, Long>()
+
     // 与请求 URL 一致地移除末尾斜杠，隔离不同 Delivery 来源的正文和校验器。
     private val deliveryKey = MessageDigest.getInstance("SHA-256")
         .digest(config.contentDeliveryUrl.trimEnd('/').toByteArray(Charsets.UTF_8))
@@ -84,8 +96,12 @@ internal class ContentDeliveryLoader(
         try {
             writeCache(path, response.body)
         } catch (failure: IOException) {
-            return LoadedResource(decoded, LoadedSource.NETWORK, "Cache write failed: ${failure.message}")
+            return LoadedResource(
+                decoded, LoadedSource.NETWORK, "Cache write failed: ${failure.message}",
+                supersededCacheVersion = cached?.cacheVersion,
+            )
         }
+        cacheCommits[path] = (cacheCommits[path] ?: 0L) + 1
         saveValidators(path, response.etag, response.lastModified)
         return LoadedResource(decoded, LoadedSource.NETWORK)
     }
@@ -94,7 +110,14 @@ internal class ContentDeliveryLoader(
         // 由 AtomicFile 恢复中断写入留下的备份，主文件缺失时也必须尝试。
         return runCatching {
             val bytes = AtomicFile(cacheFile(path)).openRead().use { it.readBytes() }
-            LoadedResource(decode(bytes), LoadedSource.CACHE)
+            LoadedResource(
+                decode(bytes), LoadedSource.CACHE,
+                cacheVersion = CacheVersion(
+                    MessageDigest.getInstance("SHA-256").digest(bytes)
+                        .joinToString("") { "%02x".format(it) },
+                    cacheCommits[path] ?: 0L,
+                ),
+            )
         }.getOrNull()
     }
 
