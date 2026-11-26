@@ -5,6 +5,19 @@ import org.junit.Test
 import java.util.Locale
 
 class TranslationDocumentTest {
+    // Java 调用方修改返回列表后，后续读取和之前的快照仍保持原值。
+    @Test
+    fun arrayReadsDoNotExposeDocumentStorage() {
+        for (original in listOf(listOf("Mon"), listOf("Mon", "Tue"))) {
+            val document = TranslationDocument.from(mapOf("days" to original))
+            val snapshot = document.stringArray("days")!!
+            val received = document.stringArray("days")!!
+            java.util.Collections.fill(received as MutableList<String>, "Changed")
+            assertEquals(original, snapshot)
+            assertEquals(original, document.stringArray("days"))
+        }
+    }
+
     // 不支持或不完整的 ICU key 不参与翻译，其他有效 key 保持可用。
     @Test
     fun unsupportedIcuPluralDoesNotBecomePartialTranslation() {

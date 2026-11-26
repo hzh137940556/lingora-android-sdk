@@ -17,8 +17,9 @@ internal class TranslationDocument private constructor(
     fun plural(key: String): Map<String, String>? =
         (values[key] as? TranslationValue.Plural)?.values
 
+    // 返回独立副本，避免调用方修改列表时污染内存文档及其他订阅者。
     fun stringArray(key: String): List<String>? =
-        (values[key] as? TranslationValue.StringArray)?.values
+        (values[key] as? TranslationValue.StringArray)?.values?.toMutableList()
 
     companion object {
         private val icuPluralPrefix = Regex("^\\s*\\{[^,{}]+,\\s*plural,")
