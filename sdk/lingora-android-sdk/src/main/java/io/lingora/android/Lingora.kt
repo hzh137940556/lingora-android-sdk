@@ -107,6 +107,8 @@ class Lingora private constructor(
 
     private val loader = ContentDeliveryLoader(context.applicationContext, config)
     private val loadMutex = Mutex()
+    // 仅保护语言切换与状态提交，不覆盖网络、磁盘或协程挂起操作。
+    private val stateLock = Any()
     private val _locale = MutableStateFlow(config.initialLocale)
     private val _availableLocaleTags = MutableStateFlow<List<String>>(emptyList())
     private val _loadState = MutableStateFlow<LingoraLoadState>(LingoraLoadState.Idle)
@@ -134,13 +136,16 @@ class Lingora private constructor(
         ensureLoaded(_locale.value, forceRefresh = true)
     }
 
+    // 与加载状态提交共用短锁，切换语言时原子重置状态。
     fun setLocale(languageTag: String) {
         require(languageTag.isNotBlank()) { "languageTag must not be blank" }
         val locale = Locale.forLanguageTag(languageTag)
         require(locale.language.isNotBlank()) { "Invalid languageTag: $languageTag" }
-        if (_locale.value != locale) {
-            _loadState.value = LingoraLoadState.Idle
-            _locale.value = locale
+        synchronized(stateLock) {
+            if (_locale.value != locale) {
+                _loadState.value = LingoraLoadState.Idle
+                _locale.value = locale
+            }
         }
     }
 
@@ -305,18 +310,16 @@ class Lingora private constructor(
         forceRefresh: Boolean = false,
     ) = loadMutex.withLock {
         if (config.contentDeliveryUrl.isBlank()) {
-            if (requestedLocale == _locale.value) {
-                _loadState.value = LingoraLoadState.UsingApkFallback(
-                    "Content Delivery URL is not configured"
-                )
-            }
+            updateLoadState(requestedLocale, LingoraLoadState.UsingApkFallback(
+                "Content Delivery URL is not configured"
+            ))
             return@withLock
         }
         val previousDocuments = loadedDocuments
         val previousManifest = manifestLocales
         val previousLoadState = _loadState.value
         try {
-            if (requestedLocale == _locale.value) _loadState.value = LingoraLoadState.Loading
+            updateLoadState(requestedLocale, LingoraLoadState.Loading)
             loadManifestOnce(forceRefresh)
             val resolvedTag = resolveLocale(
                 requested = requestedLocale,
@@ -324,11 +327,9 @@ class Lingora private constructor(
                 defaultLanguage = config.defaultLanguage,
             )
             if (resolvedTag == null) {
-                if (requestedLocale == _locale.value) {
-                    _loadState.value = LingoraLoadState.UsingApkFallback(
-                        "No published locale matches ${requestedLocale.toLanguageTag()}"
-                    )
-                }
+                updateLoadState(requestedLocale, LingoraLoadState.UsingApkFallback(
+                    "No published locale matches ${requestedLocale.toLanguageTag()}"
+                ))
                 return@withLock
             }
             val failures = mutableListOf<String>()
@@ -371,44 +372,46 @@ class Lingora private constructor(
                     },
                 )
             }
-            if (requestedLocale == _locale.value) {
-                val current = currentDocuments(resolvedTag)
-                _loadState.value = if (current.isNotEmpty()) {
-                    val source = if (current.any { it.source == LingoraSource.NETWORK }) {
-                        LingoraSource.NETWORK
-                    } else {
-                        LingoraSource.CACHE
-                    }
-                    LingoraLoadState.Ready(resolvedTag, source)
+            val current = currentDocuments(resolvedTag)
+            updateLoadState(requestedLocale, if (current.isNotEmpty()) {
+                val source = if (current.any { it.source == LingoraSource.NETWORK }) {
+                    LingoraSource.NETWORK
                 } else {
-                    LingoraLoadState.UsingApkFallback(
-                        failures.firstOrNull() ?: "Translations could not be loaded"
-                    )
+                    LingoraSource.CACHE
                 }
-            }
+                LingoraLoadState.Ready(resolvedTag, source)
+            } else {
+                LingoraLoadState.UsingApkFallback(
+                    failures.firstOrNull() ?: "Translations could not be loaded"
+                )
+            })
         } catch (cancelled: CancellationException) {
-            // 只恢复仍对应当前语言的状态，旧语言请求不能覆盖新语言状态。
-            if (requestedLocale == _locale.value) {
-                val resolved = resolveLocale(requestedLocale, manifestLocales, config.defaultLanguage)
-                val current = resolved?.let(::currentDocuments).orEmpty()
-                _loadState.value = when {
-                    current.isNotEmpty() -> LingoraLoadState.Ready(
-                        requireNotNull(resolved),
-                        if (current.any { it.source == LingoraSource.NETWORK }) {
-                            LingoraSource.NETWORK
-                        } else LingoraSource.CACHE,
-                    )
-                    previousLoadState is LingoraLoadState.Ready ->
-                        LingoraLoadState.UsingApkFallback("Current locale loading was cancelled")
-                    else -> previousLoadState
-                }
-            }
+            val resolved = resolveLocale(requestedLocale, manifestLocales, config.defaultLanguage)
+            val current = resolved?.let(::currentDocuments).orEmpty()
+            updateLoadState(requestedLocale, when {
+                current.isNotEmpty() -> LingoraLoadState.Ready(
+                    requireNotNull(resolved),
+                    if (current.any { it.source == LingoraSource.NETWORK }) {
+                        LingoraSource.NETWORK
+                    } else LingoraSource.CACHE,
+                )
+                previousLoadState is LingoraLoadState.Ready ->
+                    LingoraLoadState.UsingApkFallback("Current locale loading was cancelled")
+                else -> previousLoadState
+            })
             throw cancelled
         } finally {
             // 提前返回或取消也必须通知已经生效的文档和语言解析变化。
             if (loadedDocuments !== previousDocuments || manifestLocales != previousManifest) {
                 _changeVersion.value += 1
             }
+        }
+    }
+
+    // 将当前语言检查和状态写入作为同一个临界区，防止旧加载覆盖新语言状态。
+    private fun updateLoadState(requestedLocale: Locale, state: LingoraLoadState) {
+        synchronized(stateLock) {
+            if (requestedLocale == _locale.value) _loadState.value = state
         }
     }
 

@@ -290,6 +290,43 @@ class LingoraRequestsTest {
         }
     }
 
+    // 固定文档查询处的线程交错，验证切语言后旧加载不能发布 Ready。
+    @Test
+    fun localeSwitchWinsAgainstConcurrentStateCommit(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val sdk = sdk(server)
+            sdk.preload()
+            val field = Lingora::class.java.getDeclaredField("loadedDocuments")
+                .apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val documents = field.get(sdk) as Map<Any, Any>
+            val reading = java.util.concurrent.CountDownLatch(1)
+            val release = java.util.concurrent.CountDownLatch(1)
+            val paused = object : Map<Any, Any> by documents {
+                // 暂停状态计算中的读取，模拟刚好发生的线程切换。
+                override fun get(key: Any): Any? {
+                    reading.countDown()
+                    check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    return documents[key]
+                }
+            }
+            field.set(sdk, paused)
+            val load = launch(kotlinx.coroutines.Dispatchers.Default) { sdk.preload() }
+            try {
+                await { reading.count == 0L }
+                sdk.setLocale("ja")
+                release.countDown()
+                load.join()
+                assertEquals(Locale.JAPANESE, sdk.locale.value)
+                assertEquals(LingoraLoadState.Idle, sdk.loadState.value)
+            } finally {
+                release.countDown()
+                load.cancelAndJoin()
+                field.set(sdk, documents)
+            }
+        }
+    }
+
     // Flow 独立加载应发布新语言的 Ready，失败时不能继续显示旧语言 Ready。
     @Test
     fun flowLoadsPublishCurrentLocaleState(): Unit = runBlocking {
