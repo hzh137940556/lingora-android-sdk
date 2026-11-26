@@ -584,13 +584,13 @@ class LingoraRequestsTest {
             val version = System.nanoTime()
             val sdk = sdk(server, version)
             sdk.preload()
-            val file = cachedFile(sdk, "app/en.json")
-            val original = file.readBytes()
-            server.translationResponse = { _, _ -> Reply(body = """{"audit_text":"Newer"}""") }
-            sdk.refresh()
+            var restore: (() -> Unit)? = null
+            server.translationResponse = { _, _ ->
+                restore = blockCacheWrites(sdk)
+                Reply(body = """{"audit_text":"Newer"}""")
+            }
+            try { sdk.refresh() } finally { restore?.invoke() }
             assertEquals("Newer", sdk.t("audit_text"))
-            // 模拟网络文档生效但写盘失败后留下的旧缓存。
-            file.writeBytes(original)
             for (reply in listOf(Reply(503), Reply(body = "{invalid"))) {
                 server.translationResponse = { _, _ -> reply }
                 sdk.refresh()
@@ -617,11 +617,12 @@ class LingoraRequestsTest {
             server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
             val sdk = sdk(server)
             sdk.preload()
-            val file = cachedFile(sdk, "manifest.json")
-            val original = file.readBytes()
-            server.manifestResponse = { Reply(body = """{"locales":["en","ja"]}""") }
-            sdk.refresh()
-            file.writeBytes(original)
+            var restore: (() -> Unit)? = null
+            server.manifestResponse = {
+                restore = blockCacheWrites(sdk)
+                Reply(body = """{"locales":["en","ja"]}""")
+            }
+            try { sdk.refresh() } finally { restore?.invoke() }
             for (reply in listOf(Reply(503), Reply(body = "{invalid"))) {
                 server.manifestResponse = { reply }
                 sdk.refresh()
@@ -633,12 +634,110 @@ class LingoraRequestsTest {
         }
     }
 
-    // 定位测试实例的单个磁盘文件，以构造内存和磁盘版本不一致的恢复场景。
-    private fun cachedFile(sdk: Lingora, path: String): java.io.File {
+    // 在读取旧缓存之后、写新正文之前制造真实 IOException，并返回清理操作。
+    private fun blockCacheWrites(sdk: Lingora): () -> Unit {
         val loader = Lingora::class.java.getDeclaredField("loader")
             .apply { isAccessible = true }.get(sdk)
-        return ContentDeliveryLoader::class.java.getDeclaredMethod("cacheFile", String::class.java)
-            .apply { isAccessible = true }.invoke(loader, path) as java.io.File
+        val directory = ContentDeliveryLoader::class.java.getDeclaredField("cacheDirectory")
+            .apply { isAccessible = true }
+        val original = directory.get(loader)
+        val blocker = java.io.File.createTempFile("lingora-write", ".blocked", context.cacheDir)
+        directory.set(loader, blocker)
+        return {
+            directory.set(loader, original)
+            blocker.delete()
+        }
+    }
+
+    // 在 IO 已提交正文、调用协程尚未恢复时取消，原实例也必须接受新的磁盘版本。
+    @Test
+    fun cancelledCommitIsRecoveredForDocumentAndManifest(): Unit = runBlocking {
+        for ((manifest, dirty) in listOf(false to false, false to true, true to false, true to true)) {
+            HttpServer().use { server ->
+                val version = System.nanoTime()
+                server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+                val sdk = sdk(server, version)
+                sdk.preload()
+                if (dirty) {
+                    var restore: (() -> Unit)? = null
+                    if (manifest) {
+                        server.manifestResponse = {
+                            restore = blockCacheWrites(sdk)
+                            Reply(body = """{"locales":["en","fr"]}""")
+                        }
+                    } else {
+                        server.translationResponse = { _, _ ->
+                            restore = blockCacheWrites(sdk)
+                            Reply(body = """{"audit_text":"Unsaved"}""")
+                        }
+                    }
+                    try { sdk.refresh() } finally { restore?.invoke() }
+                }
+                val dispatcher = PausedReturnDispatcher()
+                if (manifest) {
+                    server.manifestResponse = {
+                        dispatcher.paused = true
+                        Reply(body = """{"locales":["en","ja"]}""")
+                    }
+                } else {
+                    server.translationResponse = { _, _ ->
+                        dispatcher.paused = true
+                        Reply(body = """{"audit_text":"Committed"}""")
+                    }
+                }
+                val refresh = launch(dispatcher) { sdk.refresh() }
+                try {
+                    await { dispatcher.pending.isNotEmpty() }
+                    // 回程已排队意味着 IO 中写盘和校验器提交都完成了。
+                    refresh.cancel()
+                } finally {
+                    dispatcher.resume()
+                    refresh.cancelAndJoin()
+                }
+                if (manifest) {
+                    assertEquals(if (dirty) listOf("en", "fr") else listOf("en"), sdk.availableLocaleTags.value)
+                } else {
+                    assertEquals(if (dirty) "Unsaved" else "Remote text", sdk.t("audit_text"))
+                }
+                server.manifestResponse = { Reply(503) }
+                server.translationResponse = { _, _ -> Reply(503) }
+                sdk.refresh()
+                val restarted = sdk(server, version)
+                restarted.preload()
+                if (manifest) {
+                    assertEquals(listOf("en", "ja"), sdk.availableLocaleTags.value)
+                    assertEquals(restarted.availableLocaleTags.value, sdk.availableLocaleTags.value)
+                } else {
+                    assertEquals("Committed", sdk.t("audit_text"))
+                    assertEquals(restarted.t("audit_text"), sdk.t("audit_text"))
+                }
+            }
+        }
+    }
+
+    // 暂停调用协程的回程调度，不阻塞执行下载及提交的 IO worker。
+    private class PausedReturnDispatcher : kotlinx.coroutines.CoroutineDispatcher() {
+        @Volatile var paused = false
+        val pending = java.util.concurrent.ConcurrentLinkedQueue<Runnable>()
+
+        // 使用同一监视器避免恢复期间遗漏刚入队的任务。
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            synchronized(pending) {
+                if (paused) pending.add(block)
+                else kotlinx.coroutines.Dispatchers.Default.dispatch(context, block)
+            }
+        }
+
+        // 先开放调度，再在锁外执行已经排队的恢复操作。
+        fun resume() {
+            val tasks = synchronized(pending) {
+                paused = false
+                buildList {
+                    while (true) add(pending.poll() ?: break)
+                }
+            }
+            tasks.forEach { it.run() }
+        }
     }
 
     // 用无法作为目录的 filesDir 确定性模拟落盘失败，验证网络文案可用且不保存校验器。

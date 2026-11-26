@@ -98,6 +98,7 @@ class Lingora private constructor(
         val localeTag: String,
         val document: TranslationDocument,
         val source: LingoraSource,
+        val supersededCacheVersion: CacheVersion? = null,
     )
 
     private data class FailedLoad(
@@ -111,6 +112,7 @@ class Lingora private constructor(
     private val _availableLocaleTags = MutableStateFlow<List<String>>(emptyList())
     private val _loadState = MutableStateFlow<LingoraLoadState>(LingoraLoadState.Idle)
     private val _changeVersion = MutableStateFlow(0L)
+    private var manifestSupersededCacheVersion: CacheVersion? = null
     private var manifestAttempted = false
     private var manifestRetryAfter = 0L
     // Accessed under loadMutex: collectors share each language/namespace failure cooldown.
@@ -353,16 +355,16 @@ class Lingora private constructor(
                 result.fold(
                     onSuccess = { loaded ->
                         failedLoads.remove(key)
-                        // 失败回退的磁盘版本可能落后于此前未能落盘的网络版本。
-                        if (loaded.source == LoadedSource.CACHE && loaded.warning != null &&
-                            loadedDocuments.containsKey(key)
-                        ) return@fold
+                        // 仅拒绝已确认被未落盘文档取代、且此后没有成功提交过的缓存副本。
+                        if (loaded.isSupersededBy(loadedDocuments[key]?.supersededCacheVersion)) {
+                            return@fold
+                        }
                         val source = when (loaded.source) {
                             LoadedSource.NETWORK -> LingoraSource.NETWORK
                             LoadedSource.CACHE -> LingoraSource.CACHE
                         }
                         loadedDocuments = loadedDocuments + (
-                            key to LoadedDocument(resolvedTag, loaded.value, source)
+                            key to LoadedDocument(resolvedTag, loaded.value, source, loaded.supersededCacheVersion)
                         )
                     },
                     onFailure = { failure ->
@@ -425,10 +427,8 @@ class Lingora private constructor(
             SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS
         } else 0L
         result.onSuccess { result ->
-            // manifest 同样可能存在更新的内存版本，失败回退不能撤销已发布语言。
-            if (result.source == LoadedSource.CACHE && result.warning != null &&
-                manifestLocales != null
-            ) return@onSuccess
+            if (result.isSupersededBy(manifestSupersededCacheVersion)) return@onSuccess
+            manifestSupersededCacheVersion = result.supersededCacheVersion
             manifestLocales = result.value.locales
             _availableLocaleTags.value = result.value.locales
         }
