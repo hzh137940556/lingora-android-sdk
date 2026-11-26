@@ -353,6 +353,10 @@ class Lingora private constructor(
                 result.fold(
                     onSuccess = { loaded ->
                         failedLoads.remove(key)
+                        // 失败回退的磁盘版本可能落后于此前未能落盘的网络版本。
+                        if (loaded.source == LoadedSource.CACHE && loaded.warning != null &&
+                            loadedDocuments.containsKey(key)
+                        ) return@fold
                         val source = when (loaded.source) {
                             LoadedSource.NETWORK -> LingoraSource.NETWORK
                             LoadedSource.CACHE -> LingoraSource.CACHE
@@ -421,6 +425,10 @@ class Lingora private constructor(
             SystemClock.elapsedRealtime() + FAILED_LOAD_COOLDOWN_MILLIS
         } else 0L
         result.onSuccess { result ->
+            // manifest 同样可能存在更新的内存版本，失败回退不能撤销已发布语言。
+            if (result.source == LoadedSource.CACHE && result.warning != null &&
+                manifestLocales != null
+            ) return@onSuccess
             manifestLocales = result.value.locales
             _availableLocaleTags.value = result.value.locales
         }

@@ -577,6 +577,70 @@ class LingoraRequestsTest {
         }
     }
 
+    // 构造内存 B / 磁盘 A，验证错误回退不倒退，冷启动仍可读取 A。
+    @Test
+    fun failedRefreshPreservesNewerMemoryDocument(): Unit = runBlocking {
+        HttpServer().use { server ->
+            val version = System.nanoTime()
+            val sdk = sdk(server, version)
+            sdk.preload()
+            val file = cachedFile(sdk, "app/en.json")
+            val original = file.readBytes()
+            server.translationResponse = { _, _ -> Reply(body = """{"audit_text":"Newer"}""") }
+            sdk.refresh()
+            assertEquals("Newer", sdk.t("audit_text"))
+            // 模拟网络文档生效但写盘失败后留下的旧缓存。
+            file.writeBytes(original)
+            for (reply in listOf(Reply(503), Reply(body = "{invalid"))) {
+                server.translationResponse = { _, _ -> reply }
+                sdk.refresh()
+                assertEquals("Newer", sdk.t("audit_text"))
+                assertEquals(LingoraLoadState.Ready("en", LingoraSource.NETWORK), sdk.loadState.value)
+                val restarted = sdk(server, version)
+                restarted.preload()
+                assertEquals("Remote text", restarted.t("audit_text"))
+            }
+            // 304 是服务端确认的缓存命中，不属于失败回退。
+            server.translationResponse = { _, _ -> Reply(304) }
+            sdk.refresh()
+            assertEquals("Remote text", sdk.t("audit_text"))
+            server.translationResponse = { _, _ -> Reply(body = """{"audit_text":"Latest"}""") }
+            sdk.refresh()
+            assertEquals("Latest", sdk.t("audit_text"))
+        }
+    }
+
+    // manifest 未落盘时，后续网络和解析失败不能撤回内存中的新语言。
+    @Test
+    fun failedManifestRefreshPreservesNewerMemoryLocales(): Unit = runBlocking {
+        HttpServer().use { server ->
+            server.manifestResponse = { Reply(body = """{"locales":["en"]}""") }
+            val sdk = sdk(server)
+            sdk.preload()
+            val file = cachedFile(sdk, "manifest.json")
+            val original = file.readBytes()
+            server.manifestResponse = { Reply(body = """{"locales":["en","ja"]}""") }
+            sdk.refresh()
+            file.writeBytes(original)
+            for (reply in listOf(Reply(503), Reply(body = "{invalid"))) {
+                server.manifestResponse = { reply }
+                sdk.refresh()
+                assertEquals(listOf("en", "ja"), sdk.availableLocaleTags.value)
+            }
+            server.manifestResponse = { Reply(body = """{"locales":["en","fr"]}""") }
+            sdk.refresh()
+            assertEquals(listOf("en", "fr"), sdk.availableLocaleTags.value)
+        }
+    }
+
+    // 定位测试实例的单个磁盘文件，以构造内存和磁盘版本不一致的恢复场景。
+    private fun cachedFile(sdk: Lingora, path: String): java.io.File {
+        val loader = Lingora::class.java.getDeclaredField("loader")
+            .apply { isAccessible = true }.get(sdk)
+        return ContentDeliveryLoader::class.java.getDeclaredMethod("cacheFile", String::class.java)
+            .apply { isAccessible = true }.invoke(loader, path) as java.io.File
+    }
+
     // 用无法作为目录的 filesDir 确定性模拟落盘失败，验证网络文案可用且不保存校验器。
     @Test
     fun cacheWriteFailureStillReturnsNetworkDocument(): Unit = runBlocking {
